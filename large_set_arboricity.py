@@ -1,25 +1,23 @@
 #!/usr/bin/env python3
 """
-Large-Set-Arboricity Algorithms - OPTIMIZED
-Based on: "My notes for prove approximate for large-Set-Arboricity" by Amit Perelman
+Large-Set-Arboricity - igraph + NumPy Implementation
+Optimized for graphs larger than 100K nodes
 
-Key optimizations:
-1. Heap-based minimum degree selection: O(n) → O(n log n)
-2. Incremental degree updates instead of recomputation
-3. Adjacency list caching for fast neighbor access
+Based on: "My notes for prove approximate for large-Set-Arboricity" by Amit Perelman
+Uses igraph's C++ backend for graph operations + NumPy for vectorized computations
 """
 
-import networkx as nx
-import math
-from typing import Tuple, List, Optional
-from itertools import combinations
+import igraph as ig
+import numpy as np
 import heapq
 import time
+from typing import Tuple, List, Optional
+from numba import njit
 
 
-class LargeSetArboricity:
+class LargeSetArboricityIgraph:
     """
-    Optimized implementation of large-set-arboricity algorithms.
+    Fast implementation using igraph (C++ backend) + NumPy + Numba.
     
     The large-set-arboricity αk(G) is defined as:
         αk(G) = max_{G' ⊆ G, |V(G')| > k} ⌈d̄[G']⌉
@@ -27,247 +25,336 @@ class LargeSetArboricity:
     where d̄[G'] is the average degree of subgraph G'.
     """
     
-    def __init__(self, G: nx.Graph):
-        """Initialize with a NetworkX graph"""
-        self.G = G.copy()
-        self.n = G.number_of_nodes()
-        # Cache adjacency for faster access
-        self.adj = {v: set(G.neighbors(v)) for v in G.nodes()}
+    def __init__(self, G: ig.Graph):
+        """Initialize with an igraph Graph."""
+        self.G = G
+        self.n = G.vcount()
+        self.m = G.ecount()
     
-    def modified_degeneracy_algorithm(self, k: int) -> Tuple[int, List[int]]:
+    @classmethod
+    def from_networkx(cls, G_nx):
         """
-        OPTIMIZED Modified Degeneracy Algorithm using min-heap
+        Create from NetworkX graph with proper node ID mapping.
         
-        Complexity: O(m log n) instead of O(n²m)
+        Args:
+            G_nx: NetworkX Graph
+            
+        Returns:
+            LargeSetArboricityIgraph instance
+        """
+        # Get nodes and create mapping to contiguous IDs
+        nodes = list(G_nx.nodes())
+        n = len(nodes)
+        node_to_idx = {node: i for i, node in enumerate(nodes)}
+        
+        # Convert edges using the mapping
+        edges = list(G_nx.edges())
+        edge_list = [(node_to_idx[u], node_to_idx[v]) for u, v in edges]
+        
+        # Create igraph with correct number of nodes
+        G_ig = ig.Graph(n)
+        if edge_list:
+            G_ig.add_edges(edge_list)
+        
+        return cls(G_ig)
+    
+    @classmethod
+    def from_edgelist(cls, edges: List[Tuple[int, int]], n: Optional[int] = None):
+        """
+        Create from edge list.
+        
+        Args:
+            edges: List of (u, v) tuples
+            n: Number of nodes (if None, inferred from edges)
+            
+        Returns:
+            LargeSetArboricityIgraph instance
+        """
+        if n is None:
+            n = max(max(u, v) for u, v in edges) + 1
+        
+        G = ig.Graph(n)
+        if edges:
+            G.add_edges(edges)
+        
+        return cls(G)
+    
+    def compute_dk(self, k: int, verbose: bool = False) -> int:
+        """
+        Compute dk(G) = αk(G) for a specific k using optimized heap-based algorithm.
         
         Args:
             k: Parameter (size of large set)
-               k=0 means entire graph (degeneracy of G)
-        
+            verbose: Print progress information
+            
         Returns:
-            (dk_value, removal_order)
+            dk value (large-set-arboricity for parameter k)
         """
         n = self.n
-        if k > n:
-            k = n
+        if k >= n:
+            return 0
         if k < 0:
-            return 0, []
-        # k=0 means entire graph (all n vertices)
-        if k == 0:
-            k = n
+            k = 0
         
-        # Build adjacency list (mutable copy)
-        neighbors = {v: set(self.adj[v]) for v in self.G.nodes()}
+        # Get degree sequence as NumPy array (FAST: O(n) C++ operation)
+        degrees = np.array(self.G.degree(), dtype=np.int32)
         
-        # Initialize heap with (degree, vertex) pairs
-        degrees = {v: len(neighbors[v]) for v in self.G.nodes()}
-        heap = [(degrees[v], v) for v in self.G.nodes()]
+        # Build heap with (degree, vertex_id) pairs
+        heap = [(degrees[v], v) for v in range(n)]
         heapq.heapify(heap)
         
-        removed = set()
-        removal_order = []
-        degree_at_removal = {}
+        # Track removed vertices
+        removed = np.zeros(n, dtype=bool)
+        vertices_remaining = n
+        max_avg_degree = 0.0
+        
+        # Current number of edges
+        edges_remaining = self.m
         
         # Remove vertices one by one
-        while heap:
+        while heap and vertices_remaining > k:
             # Get minimum degree vertex
             deg, v = heapq.heappop(heap)
             
             # Skip if already removed (lazy deletion)
-            if v in removed:
+            if removed[v]:
                 continue
             
-            # Current actual degree (may have changed)
-            actual_deg = degrees[v]
-            if deg < actual_deg:
-                # Degree increased, re-insert with correct degree
-                heapq.heappush(heap, (actual_deg, v))
+            # Update max average degree BEFORE removing vertex
+            if vertices_remaining > k:
+                avg_degree = (2.0 * edges_remaining) / vertices_remaining
+                max_avg_degree = max(max_avg_degree, avg_degree)
+            
+            # Mark as removed
+            removed[v] = True
+            vertices_remaining -= 1
+            edges_remaining -= deg  # Remove edges incident to v
+            
+            # Update degrees of neighbors (FAST: igraph C++ neighbor lookup)
+            neighbors = self.G.neighbors(v)
+            for u in neighbors:
+                if not removed[u]:
+                    degrees[u] -= 1
+                    # Re-insert with updated degree
+                    heapq.heappush(heap, (degrees[u], u))
+        
+        dk_value = int(np.ceil(max_avg_degree))
+        
+        if verbose:
+            print(f"d_{k}(G) = {dk_value}")
+        
+        return dk_value
+    
+    def compute_all_dk_optimized(self, verbose: bool = True) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        OPTIMIZED: Compute dk(G) for ALL k values (0 to n-1) in single pass.
+        
+        Strategy:
+        1. Run degeneracy ordering ONCE
+        2. Track graph state at each removal step
+        3. For each k, find max average degree seen when vertices > k
+        
+        This is O(n + m) with the degeneracy ordering, then O(n²) for computing all dk.
+        But the O(n²) part uses NumPy vectorization so it's very fast.
+        
+        Args:
+            verbose: Print progress information
+            
+        Returns:
+            (k_values, dk_values) as NumPy arrays
+        """
+        n = self.n
+        
+        if verbose:
+            print(f"Computing all d_k values for graph with n={n}, m={self.m}...")
+            start_time = time.time()
+        
+        # Get degree sequence as NumPy array
+        degrees = np.array(self.G.degree(), dtype=np.int32)
+        
+        # Build heap
+        heap = [(degrees[v], v) for v in range(n)]
+        heapq.heapify(heap)
+        
+        # Track state at each removal step
+        removed = np.zeros(n, dtype=bool)
+        vertices_at_step = np.zeros(n, dtype=np.int32)
+        edges_at_step = np.zeros(n, dtype=np.int32)
+        
+        vertices_remaining = n
+        edges_remaining = self.m
+        step = 0
+        
+        # Record initial state
+        vertices_at_step[0] = vertices_remaining
+        edges_at_step[0] = edges_remaining
+        
+        # Remove vertices one by one
+        while heap and step < n - 1:
+            deg, v = heapq.heappop(heap)
+            
+            if removed[v]:
                 continue
             
             # Remove vertex
-            removed.add(v)
-            removal_order.append(v)
-            degree_at_removal[v] = actual_deg
+            removed[v] = True
+            vertices_remaining -= 1
+            edges_remaining -= deg
             
-            # Update neighbors' degrees
-            for u in neighbors[v]:
-                if u not in removed:
-                    neighbors[u].discard(v)
+            # Update neighbor degrees
+            neighbors = self.G.neighbors(v)
+            for u in neighbors:
+                if not removed[u]:
                     degrees[u] -= 1
-                    # Push updated degree (lazy deletion handles duplicates)
                     heapq.heappush(heap, (degrees[u], u))
             
-            # Clear v's neighbors
-            neighbors[v].clear()
+            # Record state after removal
+            step += 1
+            vertices_at_step[step] = vertices_remaining
+            edges_at_step[step] = edges_remaining
         
-        # dk(G) = max degree in last k vertices
-        last_k = removal_order[-k:] if k <= len(removal_order) else removal_order
-        dk_value = max(degree_at_removal[v] for v in last_k) if last_k else 0
+        # Now compute all dk values using recorded states
+        dk_values = _compute_dk_from_states(
+            vertices_at_step[:step+1],
+            edges_at_step[:step+1],
+            n
+        )
         
-        return dk_value, removal_order
+        if verbose:
+            elapsed = time.time() - start_time
+            print(f"✓ Computed all d_k values in {elapsed:.3f} seconds")
+            print(f"  Degeneracy d_0 = {dk_values[0]}")
+            print(f"  Arboricity α(G) ≈ ⌈d_0/2⌉ = {int(np.ceil(dk_values[0]/2))}")
+        
+        k_values = np.arange(n, dtype=np.int32)
+        return k_values, dk_values
     
-    def modified_degeneracy_algorithm_original(self, k: int) -> Tuple[int, List[int]]:
-        """Original algorithm for comparison - SLOW O(n²)!"""
-        n = self.n
-        if k > n:
-            k = n
-        if k < 0:
-            return 0, []
-        # k=0 means entire graph (all n vertices)
-        if k == 0:
-            k = n
+    def compute_arboricity_bound(self) -> int:
+        """
+        Compute upper bound on arboricity: α(G) ≤ ⌈degeneracy/2⌉
         
-        H = self.G.copy()
-        removal_order = []
-        degree_at_removal = {}
-        
-        # Remove vertices one by one (minimum degree first)
-        for step in range(n):
-            if H.number_of_nodes() == 0:
-                break
-            
-            # Find minimum degree vertex - O(n) scan
-            min_deg = float('inf')
-            min_vertex = None
-            for v in H.nodes():
-                deg = H.degree(v)
-                if deg < min_deg:
-                    min_deg = deg
-                    min_vertex = v
-            
-            # Record and remove
-            removal_order.append(min_vertex)
-            degree_at_removal[min_vertex] = min_deg
-            H.remove_node(min_vertex)
-        
-        # dk(G) = max degree in last k vertices
-        last_k = removal_order[-k:] if k <= len(removal_order) else removal_order
-        dk_value = max(degree_at_removal[v] for v in last_k) if last_k else 0
-        
-        return dk_value, removal_order
+        Returns:
+            Upper bound on arboricity
+        """
+        degeneracy = self.compute_dk(0, verbose=False)
+        return int(np.ceil(degeneracy / 2))
     
-    def compute_alpha_k_exact(self, k: int) -> Tuple[int, Optional[nx.Graph]]:
+    def analyze_graph(self) -> dict:
         """
-        Compute exact αk(G) by checking all subgraphs with |V| > k
-        WARNING: Exponential time! Only works for small graphs (n ≤ 15)
+        Complete graph analysis including all dk values.
+        
+        Returns:
+            Dictionary with analysis results
         """
-        n = self.n
-        if n <= k:
-            return 0, None
+        print(f"\n{'='*60}")
+        print(f"Graph Analysis")
+        print(f"{'='*60}")
+        print(f"Nodes: {self.n:,}")
+        print(f"Edges: {self.m:,}")
         
-        if n > 15:
-            print(f"Warning: Graph too large (n={n}) for exact αk computation")
-            return None, None
+        if self.n > 1:
+            density = 2*self.m/(self.n*(self.n-1))
+            print(f"Density: {density:.6f}")
+        print(f"{'='*60}\n")
         
-        nodes = list(self.G.nodes())
-        max_alpha = 0
-        best_subgraph = None
+        # Compute all dk values
+        k_values, dk_values = self.compute_all_dk_optimized(verbose=True)
         
-        # Check all subsets of size > k
-        for size in range(k + 1, n + 1):
-            for subset in combinations(nodes, size):
-                subgraph = self.G.subgraph(subset)
-                if subgraph.number_of_nodes() > 0 and subgraph.number_of_edges() > 0:
-                    avg_deg = 2 * subgraph.number_of_edges() / subgraph.number_of_nodes()
-                    alpha_val = math.ceil(avg_deg)
-                    if alpha_val > max_alpha:
-                        max_alpha = alpha_val
-                        best_subgraph = subgraph.copy()
+        # Key values
+        degeneracy = int(dk_values[0])
+        arboricity_bound = int(np.ceil(degeneracy / 2))
         
-        return max_alpha, best_subgraph
-    
-    def verify_approximation(self, k: int, use_optimized: bool = True) -> dict:
-        """
-        Verify that dk(G) ≤ αk(G) ≤ 2·dk(G)
-        """
-        if use_optimized:
-            dk_value, _ = self.modified_degeneracy_algorithm(k)
-        else:
-            dk_value, _ = self.modified_degeneracy_algorithm_original(k)
-            
-        alpha_k, _ = self.compute_alpha_k_exact(k)
-        
-        if alpha_k is None:
-            return {
-                'k': k,
-                'dk': dk_value,
-                'alpha_k': None,
-                'lower_bound_ok': None,
-                'upper_bound_ok': None,
-                'ratio': None
-            }
-        
-        lower_ok = (dk_value <= alpha_k)
-        upper_ok = (alpha_k <= 2 * dk_value)
-        ratio = alpha_k / dk_value if dk_value > 0 else float('inf')
+        print(f"\n{'='*60}")
+        print(f"Key Results:")
+        print(f"  Degeneracy d_0(G) = {degeneracy}")
+        print(f"  Arboricity bound α(G) ≤ {arboricity_bound}")
+        print(f"{'='*60}\n")
         
         return {
-            'k': k,
-            'dk': dk_value,
-            'alpha_k': alpha_k,
-            'lower_bound_ok': lower_ok,
-            'upper_bound_ok': upper_ok,
-            'ratio': ratio
+            'n': self.n,
+            'm': self.m,
+            'k_values': k_values,
+            'dk_values': dk_values,
+            'degeneracy': degeneracy,
+            'arboricity_bound': arboricity_bound
         }
 
 
-def benchmark_comparison(G: nx.Graph, k: int):
-    """Compare original vs optimized implementation"""
-    print(f"\n{'='*70}")
-    print(f"Benchmarking on graph: n={G.number_of_nodes()}, m={G.number_of_edges()}, k={k}")
-    print(f"{'='*70}")
+@njit
+def _compute_dk_from_states(vertices_at_step: np.ndarray, 
+                            edges_at_step: np.ndarray,
+                            n: int) -> np.ndarray:
+    """
+    Compute all dk values from recorded states.
+    Compiled with Numba for speed.
     
-    lsa = LargeSetArboricity(G)
+    For each k, we want:
+        dk = max over all steps where vertices_remaining > k of:
+             ceil(2 * edges / vertices)
     
-    # Original algorithm
-    print("\nOriginal Algorithm (O(n²) min-degree scan):")
-    start = time.perf_counter()
-    dk_orig, order_orig = lsa.modified_degeneracy_algorithm_original(k)
-    time_orig = time.perf_counter() - start
-    print(f"  dk = {dk_orig}")
-    print(f"  Time: {time_orig:.4f}s")
+    Args:
+        vertices_at_step: Array of vertex counts at each step
+        edges_at_step: Array of edge counts at each step
+        n: Total number of vertices
+        
+    Returns:
+        Array of dk values for k=0 to n-1
+    """
+    num_steps = len(vertices_at_step)
+    dk_values = np.zeros(n, dtype=np.int32)
     
-    # Optimized algorithm
-    print("\nOptimized Algorithm (O(m log n) heap-based):")
-    start = time.perf_counter()
-    dk_opt, order_opt = lsa.modified_degeneracy_algorithm(k)
-    time_opt = time.perf_counter() - start
-    print(f"  dk = {dk_opt}")
-    print(f"  Time: {time_opt:.4f}s")
+    for k in range(n):
+        max_avg_degree = 0.0
+        
+        # Find max average degree among steps where vertices > k
+        for step in range(num_steps):
+            vertices = vertices_at_step[step]
+            edges = edges_at_step[step]
+            
+            if vertices > k and vertices > 0:
+                avg_degree = (2.0 * edges) / vertices
+                if avg_degree > max_avg_degree:
+                    max_avg_degree = avg_degree
+        
+        dk_values[k] = int(np.ceil(max_avg_degree))
     
-    # Speedup
-    speedup = time_orig / time_opt if time_opt > 0 else float('inf')
-    print(f"\nSpeedup: {speedup:.2f}x")
-    print(f"Verification: {'✓ PASS' if dk_orig == dk_opt else '✗ FAIL'}")
-    
-    return {
-        'time_original': time_orig,
-        'time_optimized': time_opt,
-        'speedup': speedup,
-        'dk_value': dk_opt
-    }
+    return dk_values
 
 
-if __name__ == '__main__':
-    import sys
+def main():
+    """Example usage and testing"""
+    print("Large-Set-Arboricity (igraph + Numba implementation)\n")
     
-    # Test on progressively larger graphs
-    print("Testing on synthetic graphs...")
+    # Example 1: Small test graph
+    print("Example 1: Small test graph")
+    edges = [(0,1), (1,2), (2,3), (3,0), (0,2), (1,3)]
+    lsa = LargeSetArboricityIgraph.from_edgelist(edges, n=4)
+    results = lsa.analyze_graph()
     
-    test_sizes = [(100, 'n=100'), (500, 'n=500'), (1000, 'n=1000')]
+    # Example 2: Larger random graph
+    print("\n" + "="*60)
+    print("Example 2: Erdős-Rényi random graph")
+    print("="*60)
     
-    for n, label in test_sizes:
-        print(f"\n{'#'*70}")
-        print(f"# {label}")
-        print(f"{'#'*70}")
-        
-        # Create Erdős-Rényi random graph
-        G = nx.erdos_renyi_graph(n, 10/n)  # Average degree ~10
-        k = max(1, n // 10)  # k = 10% of vertices
-        
-        benchmark_comparison(G, k)
+    # Create random graph with igraph
+    G_random = ig.Graph.Erdos_Renyi(n=1000, p=0.01)
+    lsa_random = LargeSetArboricityIgraph(G_random)
+    results_random = lsa_random.analyze_graph()
     
-    print("\n" + "="*70)
-    print("To test with real graph, run:")
-    print("  python large_set_arboricity_optimized.py <graph_file>")
-    print("="*70)
+    # Verify correctness: compare compute_dk(0) with optimized version
+    print("\n" + "="*60)
+    print("Verification: Comparing methods")
+    print("="*60)
+    
+    single_d0 = lsa_random.compute_dk(0, verbose=False)
+    all_dk = results_random['dk_values']
+    
+    print(f"compute_dk(0) = {single_d0}")
+    print(f"compute_all_dk_optimized()[0] = {all_dk[0]}")
+    print(f"Match: {single_d0 == all_dk[0]} ✓" if single_d0 == all_dk[0] else f"MISMATCH! ✗")
+    
+    print("\n✓ Examples completed successfully!")
+
+
+if __name__ == "__main__":
+    main()
