@@ -1,0 +1,41 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug GraphAnalyzer",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/ui/build/GraphAnalyzer",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/ui/build",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "CMake: Build",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "visualizerFile": "/home/amitp/.config/Code/User/workspaceStorage/d21742acdc55458e50c5746756c7951c/tonka3000.qtvsctools/qt.natvis.xml"
+        },
+        {
+            "name": "Run GraphAnalyzer",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/ui/build/GraphAnalyzer",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/ui/build",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "preLaunchTask": "CMake: Build",
+            "visualizerFile": "/home/amitp/.config/Code/User/workspaceStorage/d21742acdc55458e50c5746756c7951c/tonka3000.qtvsctools/qt.natvis.xml"
+        }
+    ]
+}
