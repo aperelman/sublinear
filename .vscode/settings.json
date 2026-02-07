@@ -1,0 +1,19 @@
+{
+    "cmake.sourceDirectory": "${workspaceFolder}/ui",
+    "cmake.buildDirectory": "${workspaceFolder}/ui/build",
+    "cmake.configureOnOpen": true,
+    "cmake.generator": "Unix Makefiles",
+    "cmake.configureSettings": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+    },
+    "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+    "files.associations": {
+        "*.ui": "xml",
+        "qstring": "cpp",
+        "qobject": "cpp",
+        "qwidget": "cpp"
+    },
+    "editor.formatOnSave": false,
+    "cmake.buildBeforeRun": true
+}
