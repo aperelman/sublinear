@@ -1,48 +1,52 @@
-#pragma once
+#ifndef MAINWINDOW_H
+#define MAINWINDOW_H
 
 #include <QMainWindow>
+#include <QNetworkAccessManager>
 #include <QTabWidget>
-#include <QTextEdit>
-#include <QPushButton>
-#include <QProgressBar>
 #include <QComboBox>
 #include <QSpinBox>
-#include "graph_list_widget.h"
-#include "snap_browser_widget.h"
-#include "snap_dataset_cache.h"
-#include "algorithm_runner.h"
+#include <QPushButton>
+#include <QProgressBar>
+#include <QTextEdit>
+#include <QVector>
+
+// Forward declarations: Tells the compiler these classes exist elsewhere
+class GraphListWidget;
+class SnapBrowserWidget;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
-    
+
 public:
-    explicit MainWindow(QWidget* parent = nullptr);
+    MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
-    
+
 private slots:
-    void onGraphSelected(const GraphInfo& graph);
-    void onGraphDoubleClicked(const GraphInfo& graph);
-    void onDatasetReady(const QString& filePath);
+    void handleNetworkReply(); 
     void onRunAlgorithmClicked();
-    void onAlgorithmFinished(const AlgorithmResult& result);
-    void onAlgorithmProgress(int current, int total);
-    void onAlgorithmError(const QString& error);
-    
+    void onGraphSelected();
+    void onGraphDoubleClicked();
+    void onDatasetReady();
+
 private:
     void setupUI();
     void setupMenuBar();
-    void updateStatusBar(const QString& message);
     void loadSnapDatasets();
-    
-    GraphListWidget* graphListWidget;
-    SnapBrowserWidget* snapBrowserWidget;
-    QTabWidget* leftTabWidget;
-    QTabWidget* tabWidget;
-    QComboBox* algorithmCombo;
-    QSpinBox* maxKSpinBox;
-    QPushButton* runButton;
-    QProgressBar* progressBar;
-    QTextEdit* resultsText;
-    AlgorithmRunner* algorithmRunner;
-    GraphInfo currentGraphInfo;
+    void updateStatusBar(const QString& message);
+
+    // UI Pointers - initialized to nullptr for safety
+    QTabWidget* leftTabWidget = nullptr;
+    GraphListWidget* graphListWidget = nullptr;
+    SnapBrowserWidget* snapBrowserWidget = nullptr;
+    QComboBox* algorithmCombo = nullptr;
+    QSpinBox* maxKSpinBox = nullptr;
+    QPushButton* runButton = nullptr;
+    QProgressBar* progressBar = nullptr;
+    QTabWidget* tabWidget = nullptr;
+    QTextEdit* resultsText = nullptr;
+
+    QNetworkAccessManager* networkManager = nullptr;
 };
+
+#endif // MAINWINDOW_H
