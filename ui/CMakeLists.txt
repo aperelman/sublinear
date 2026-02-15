@@ -6,7 +6,7 @@ project(GraphAnalyzer VERSION 1.0.0)
 set(CMAKE_PREFIX_PATH "C:/Qt/6.8.3/msvc2022_64")
 
 # 2. הגדרות C++
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # 3. הגדרות אוטומטיות של Qt (MOC, UIC, RCC)

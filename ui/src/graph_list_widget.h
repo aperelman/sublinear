@@ -1,14 +1,12 @@
-#pragma once
+#ifndef GRAPH_LIST_WIDGET_H
+#define GRAPH_LIST_WIDGET_H
 
 #include <QWidget>
 #include <QListWidget>
 #include <QPushButton>
 #include <QLineEdit>
 #include <QLabel>
-#include <QVBoxLayout>
-#include <QHBoxLayout>
-#include <QDir>
-#include <QFileDialog>
+#include <QList>
 #include "graph_info.h"
 
 class GraphListWidget : public QWidget {
@@ -35,7 +33,6 @@ private slots:
 private:
     void setupUI();
     void updateGraphList();
-void updateDatasetList();
     QString findDefaultGraphDirectory();
     
     QListWidget* graphList;
@@ -48,3 +45,5 @@ void updateDatasetList();
     QList<GraphInfo> graphs;
     QList<GraphInfo> filteredGraphs;
 };
+
+#endif // GRAPH_LIST_WIDGET_H
