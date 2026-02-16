@@ -7,17 +7,7 @@
 #include <QJsonArray>
 #include <QDateTime>
 
-struct GraphInfo {
-    QString name;
-    QString description;
-    QString url;
-    QString filename;
-    QString category;
-    long long numNodes = 0;
-    long long numEdges = 0;
-    long long numTriangles = 0;
-};
-
+struct GraphInfo;
 class SnapDatasetCache {
 public:
     [[nodiscard]] static bool saveToCache(const QList<GraphInfo>& datasets);

@@ -10,6 +10,7 @@
 #include <QDateTime>
 #include <ranges>       // C++23 Ranges
 #include <algorithm>    // std::ranges::copy
+#include"graph_info.h"
 
 QString SnapDatasetCache::getCachePath() {
     QString cacheDir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);

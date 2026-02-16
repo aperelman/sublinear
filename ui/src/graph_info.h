@@ -9,6 +9,7 @@ struct GraphInfo {
     QString description;
     QString url;
     QString filename;
+    QString detailsUrl;
     QString category;
     QString localPath;
     QString fileSizeString;
