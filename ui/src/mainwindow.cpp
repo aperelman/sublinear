@@ -6,84 +6,116 @@
 #include <QGroupBox>
 #include <QLabel>
 #include <QStatusBar>
+#include <QDir>
+#include <QFileInfoList>
+#include <QComboBox>
+#include <QPushButton>
+#include <QTextEdit>
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
-    // 1. Build the UI
     setupUI();
     setupMenuBar();
-
-    // 2. Network Setup
     networkManager = new QNetworkAccessManager(this);
-    connect(networkManager, &QNetworkAccessManager::finished, 
-            this, &MainWindow::handleNetworkReply);
-
-    // 3. Load initial data
+    connect(networkManager, &QNetworkAccessManager::finished, this, &MainWindow::handleNetworkReply);
     loadSnapDatasets();
 }
 
-MainWindow::~MainWindow() {
-    // No 'delete ui' needed! Qt deletes child widgets automatically.
-}
+MainWindow::~MainWindow() {}
 
 void MainWindow::setupUI() {
-    setWindowTitle("GraphAnalyzer - Graph Analysis Tool");
-    resize(1400, 900);
+    setWindowTitle("GraphAnalyzer");
+    resize(1200, 800);
     
     auto* centralWidget = new QWidget(this);
     auto* mainLayout = new QHBoxLayout(centralWidget);
     
-    // Left Tab Widget setup
+    // Left Panel: Tabs for data sources
     leftTabWidget = new QTabWidget();
-    leftTabWidget->setMinimumWidth(400);
-    
     graphListWidget = new GraphListWidget();
-    leftTabWidget->addTab(graphListWidget, "Local Files");
-    
     snapBrowserWidget = new SnapBrowserWidget();
-    leftTabWidget->addTab(snapBrowserWidget, "SNAP Datasets");
     
+    leftTabWidget->addTab(graphListWidget, "Local Files");
+    leftTabWidget->addTab(snapBrowserWidget, "SNAP Datasets");
     mainLayout->addWidget(leftTabWidget);
 
-    // Right Panel (Controls & Results)
+    // Right Panel: Controls and Results
     auto* rightPanel = new QWidget();
     auto* rightLayout = new QVBoxLayout(rightPanel);
     
+    // Algorithm Selection
     auto* algoGroup = new QGroupBox("Algorithm Selection");
     auto* algoLayout = new QVBoxLayout(algoGroup);
     
     algorithmCombo = new QComboBox();
-    algorithmCombo->addItem("Arboricity", "arboricity");
+    algorithmCombo->addItem("-- Select Algorithm --", ""); 
+
+    // Scan the algorithms directory
+    QDir dir(QDir::currentPath());
+    if (dir.dirName() == "build") dir.cdUp();
+    
+    if (dir.cd("algorithms")) {
+        dir.setFilter(QDir::Dirs | QDir::NoDotAndDotDot);
+        QFileInfoList subDirs = dir.entryInfoList();
+        for (const QFileInfo& dirInfo : subDirs) {
+            algorithmCombo->addItem(dirInfo.fileName(), dirInfo.absoluteFilePath());
+        }
+    }
+    
     algoLayout->addWidget(new QLabel("Algorithm:"));
     algoLayout->addWidget(algorithmCombo);
     
-    runButton = new QPushButton("Run Analysis");
+    runButton = new QPushButton("Run");
     runButton->setEnabled(false);
-    connect(runButton, &QPushButton::clicked, this, &MainWindow::onRunAlgorithmClicked);
     algoLayout->addWidget(runButton);
     
     rightLayout->addWidget(algoGroup);
     
-    tabWidget = new QTabWidget();
     resultsText = new QTextEdit();
     resultsText->setReadOnly(true);
-    tabWidget->addTab(resultsText, "Results");
+    rightLayout->addWidget(resultsText);
     
-    rightLayout->addWidget(tabWidget);
     mainLayout->addWidget(rightPanel, 1);
-    
     setCentralWidget(centralWidget);
 
-    // Signals from custom widgets
-    connect(graphListWidget, &GraphListWidget::graphSelected, this, &MainWindow::onGraphSelected);
+    // Signal Connections
+    connect(algorithmCombo, &QComboBox::currentIndexChanged, this, &MainWindow::checkRunRequirements);
     connect(snapBrowserWidget, &SnapBrowserWidget::datasetReady, this, &MainWindow::onDatasetReady);
+    connect(runButton, &QPushButton::clicked, this, &MainWindow::onRunAlgorithmClicked);
 }
 
-// Implement placeholders so the linker doesn't complain
+void MainWindow::checkRunRequirements() {
+    bool hasAlgo = (algorithmCombo->currentIndex() > 0);
+    bool hasGraph = !currentGraphPath.isEmpty();
+    runButton->setEnabled(hasAlgo && hasGraph);
+}
+
+void MainWindow::onGraphSelected() {
+    // This should ideally be handled by a signal from graphListWidget
+    currentGraphPath = "local_path_placeholder"; 
+    checkRunRequirements();
+}
+
+void MainWindow::onDatasetReady(const QString& filePath) {
+    currentGraphPath = filePath;
+    checkRunRequirements();
+    updateStatusBar("Dataset ready: " + filePath);
+}
+
+void MainWindow::onRunAlgorithmClicked() {
+    QString selectedAlgo = algorithmCombo->currentText();
+    if (selectedAlgo.contains("Exact", Qt::CaseInsensitive)) {
+        if (snapBrowserWidget) {
+            snapBrowserWidget->handleAnalysis(currentGraphPath); 
+        }
+    } else {
+        resultsText->append("Running standard approximation for: " + currentGraphPath);
+    }
+}
+
 void MainWindow::setupMenuBar() {}
 void MainWindow::loadSnapDatasets() {}
 void MainWindow::handleNetworkReply() {}
-void MainWindow::onRunAlgorithmClicked() {}
-void MainWindow::onGraphSelected() { if(runButton) runButton->setEnabled(true); }
 void MainWindow::onGraphDoubleClicked() {}
-void MainWindow::onDatasetReady() {}
-void MainWindow::updateStatusBar(const QString& m) { if(statusBar()) statusBar()->showMessage(m); }
+void MainWindow::updateStatusBar(const QString& m) { 
+    if(statusBar()) statusBar()->showMessage(m); 
+}

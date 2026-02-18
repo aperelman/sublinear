@@ -14,6 +14,8 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QLocale>
+#include <QLabel>
+#include <QProgressBar>
 
 SnapBrowserWidget::SnapBrowserWidget(QWidget* p) 
     : QWidget(p)
@@ -22,8 +24,6 @@ SnapBrowserWidget::SnapBrowserWidget(QWidget* p)
 {
     setupUI();
     
-    // Per-reply connections instead of blanket finished signal,
-    // so detail page replies don't route to onScrapeFinished.
     connect(dlmgr, &DownloadManager::downloadProgress, this, &SnapBrowserWidget::onDownloadProgress);
     connect(dlmgr, &DownloadManager::downloadFinished, this, &SnapBrowserWidget::onDownloadFinished);
     connect(dlmgr, &DownloadManager::downloadError, this, &SnapBrowserWidget::onDownloadError);
@@ -63,6 +63,12 @@ void SnapBrowserWidget::setupUI() {
     connect(refreshBtn, &QPushButton::clicked, this, &SnapBrowserWidget::onRefreshClicked);
 }
 
+void SnapBrowserWidget::handleAnalysis(const QString& filePath) {
+    // Basic implementation to satisfy header and avoid future linker errors
+    if (filePath.isEmpty()) return;
+    QMessageBox::information(this, "Analysis", "Starting analysis on: " + filePath);
+}
+
 void SnapBrowserWidget::onScrapeFinished(QNetworkReply* reply) {
     refreshBtn->setEnabled(true);
     if (reply->error() != QNetworkReply::NoError) {
@@ -82,7 +88,7 @@ void SnapBrowserWidget::onScrapeFinished(QNetworkReply* reply) {
         ds.name = match.captured(2).trimmed();
         ds.numNodes = match.captured(3).remove(',').trimmed().toLongLong();
         ds.numEdges = match.captured(4).remove(',').trimmed().toLongLong();
-        ds.numTriangles = 0;  // Fetched from detail pages
+        ds.numTriangles = 0; 
 
         QString id = match.captured(1).section('/', -1).section('.', 0, 0);
         ds.url = QString("https://snap.stanford.edu/data/%1.txt.gz").arg(id);
@@ -92,7 +98,7 @@ void SnapBrowserWidget::onScrapeFinished(QNetworkReply* reply) {
     }
 
     if (datasets.isEmpty()) {
-        info->setText("<b style='color:red;'>Error:</b> No datasets found. Website format might have changed.");
+        info->setText("<b style='color:red;'>Error:</b> No datasets found.");
     } else {
         updateList();
         fetchTriangleCounts();
@@ -103,11 +109,6 @@ void SnapBrowserWidget::onScrapeFinished(QNetworkReply* reply) {
 void SnapBrowserWidget::fetchTriangleCounts() {
     for (int i = 0; i < datasets.size(); ++i) {
         QString detailsUrl = datasets[i].detailsUrl;
-        if (detailsUrl.isEmpty()) {
-            detailsUrl = datasets[i].url;
-            detailsUrl.replace(".txt.gz", ".html");
-        }
-
         QNetworkRequest req{QUrl(detailsUrl)};
         QNetworkReply* reply = networkManager->get(req);
         reply->setProperty("datasetIndex", i);
@@ -120,35 +121,18 @@ void SnapBrowserWidget::fetchTriangleCounts() {
 
 void SnapBrowserWidget::onDetailPageFinished(QNetworkReply* reply) {
     int idx = reply->property("datasetIndex").toInt();
-    reply->deleteLater();
+    if (reply->error() == QNetworkReply::NoError && idx >= 0 && idx < datasets.size()) {
+        QString html = reply->readAll();
+        QRegularExpression re("Number of triangles\\s*</td>\\s*<td>\\s*(\\d[\\d,]*)", QRegularExpression::CaseInsensitiveOption);
+        QRegularExpressionMatch m = re.match(html);
 
-    if (reply->error() != QNetworkReply::NoError || idx < 0 || idx >= datasets.size())
-        return;
-
-    QString html = reply->readAll();
-
-    // SNAP detail pages use HTML table: <td>Number of triangles</td><td>1612010</td>
-    QRegularExpression re(
-        "Number of triangles\\s*</td>\\s*<td>\\s*(\\d[\\d,]*)",
-        QRegularExpression::CaseInsensitiveOption
-    );
-    QRegularExpressionMatch m = re.match(html);
-
-    /*
-    // DEBUG — remove after testing
-    qDebug() << "Detail page for" << idx << datasets[idx].name
-             << "html length:" << html.length()
-             << "match:" << m.hasMatch()
-             << (m.hasMatch() ? m.captured(1) : "NO MATCH");
-*/
-    if (m.hasMatch()) {
-        datasets[idx].numTriangles = m.captured(1).remove(',').toLongLong();
-
-        if (list->currentRow() == idx)
-            onDatasetSelected();
-
-        saveToCache();
+        if (m.hasMatch()) {
+            datasets[idx].numTriangles = m.captured(1).remove(',').toLongLong();
+            if (list->currentRow() == idx) onDatasetSelected();
+            saveToCache();
+        }
     }
+    reply->deleteLater();
 }
 
 void SnapBrowserWidget::onDatasetSelected() {
@@ -158,44 +142,17 @@ void SnapBrowserWidget::onDatasetSelected() {
     const GraphInfo& ds = datasets.at(row);
     QLocale english(QLocale::English);
 
-    double density = 0;
-    if (ds.numNodes > 1) {
-        density = (2.0 * ds.numEdges) / (double(ds.numNodes) * (double(ds.numNodes) - 1.0));
-    }
+    double density = (ds.numNodes > 1) ? (2.0 * ds.numEdges) / (double(ds.numNodes) * (double(ds.numNodes) - 1.0)) : 0;
 
-    QString html = QString(
-        "<html><body style='font-family: sans-serif; line-height: 2.0;'>"
-        "  <h2 style='color: #2c3e50; margin-bottom: 5px;'>%1</h2>"
-        "  <hr style='border: 0; border-top: 1px solid #eee;'>"
-        "  <table width='100%%' cellpadding='15' cellspacing='0' style='margin-top: 10px;'>"
-        "    <tr style='background-color: #fcfcfc;'>"
-        "      <td style='color: #7f8c8d;'><b>Nodes:</b></td>"
-        "      <td align='right' style='font-size: 11pt;'>%2</td>"
-        "    </tr>"
-        "    <tr>"
-        "      <td style='color: #7f8c8d;'><b>Edges:</b></td>"
-        "      <td align='right' style='font-size: 11pt;'>%3</td>"
-        "    </tr>"
-        "    <tr style='background-color: #fcfcfc;'>"
-        "      <td style='color: #7f8c8d;'><b>Number of triangles:</b></td>"
-        "      <td align='right' style='color: #e67e22; font-weight: bold; font-size: 12pt;'>%4</td>"
-        "    </tr>"
-        "    <tr>"
-        "      <td style='color: #7f8c8d;'><b>Density:</b></td>"
-        "      <td align='right' style='color: #95a5a6;'>%5</td>"
-        "    </tr>"
-        "  </table>"
-        "  <div style='margin-top: 25px; padding: 12px; background: #f8f9fa; border-radius: 4px; color: #546e7a; font-size: 9pt;'>"
-        "    <b>Local filename:</b> %6"
-        "  </div>"
-        "</body></html>"
-    )
-    .arg(ds.name)
-    .arg(english.toString((qlonglong)ds.numNodes))
-    .arg(english.toString((qlonglong)ds.numEdges))
-    .arg(ds.numTriangles > 0 ? english.toString((qlonglong)ds.numTriangles) : "<i>Not available</i>")
-    .arg(QString::number(density, 'g', 4))
-    .arg(ds.filename);
+    QString html = QString("<html><body style='font-family: sans-serif;'>"
+                           "<h2>%1</h2><hr>"
+                           "<b>Nodes:</b> %2<br><b>Edges:</b> %3<br>"
+                           "<b>Triangles:</b> %4<br><b>Density:</b> %5<br>"
+                           "<small>File: %6</small></body></html>")
+                   .arg(ds.name).arg(english.toString((qlonglong)ds.numNodes))
+                   .arg(english.toString((qlonglong)ds.numEdges))
+                   .arg(ds.numTriangles > 0 ? english.toString((qlonglong)ds.numTriangles) : "N/A")
+                   .arg(QString::number(density, 'g', 4)).arg(ds.filename);
 
     info->setText(html);
     btn->setEnabled(true);
@@ -204,18 +161,13 @@ void SnapBrowserWidget::onDatasetSelected() {
 
 void SnapBrowserWidget::updateList() {
     list->clear();
-    for (const auto& ds : datasets) {
-        list->addItem(ds.name);
-    }
+    for (const auto& ds : datasets) list->addItem(ds.name);
 }
 
 void SnapBrowserWidget::loadFromCache() {
     QFile file("snap_catalog.json");
     if (!file.open(QIODevice::ReadOnly)) return;
-    
-    QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-    QJsonArray array = doc.array();
-    
+    QJsonArray array = QJsonDocument::fromJson(file.readAll()).array();
     datasets.clear();
     for (auto val : array) {
         QJsonObject obj = val.toObject();
@@ -245,34 +197,22 @@ void SnapBrowserWidget::saveToCache() {
         obj["filename"] = ds.filename;
         array.append(obj);
     }
-
     QFile file("snap_catalog.json");
-    if (file.open(QIODevice::WriteOnly)) {
-        file.write(QJsonDocument(array).toJson());
-    }
+    if (file.open(QIODevice::WriteOnly)) file.write(QJsonDocument(array).toJson());
 }
 
 void SnapBrowserWidget::onRefreshClicked() {
     refreshBtn->setEnabled(false);
-    QNetworkReply* reply = networkManager->get(
-        QNetworkRequest(QUrl("https://snap.stanford.edu/data/index.html")));
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        onScrapeFinished(reply);
-    });
+    QNetworkReply* reply = networkManager->get(QNetworkRequest(QUrl("https://snap.stanford.edu/data/index.html")));
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() { onScrapeFinished(reply); });
 }
 
 void SnapBrowserWidget::onDownloadClicked() {
     int row = list->currentRow();
     if (row < 0) return;
-
     const auto& ds = datasets[row];
     QString path = QDir::currentPath() + "/data/" + ds.filename;
-
-    if (QFile::exists(path)) {
-        emit datasetReady(path);
-        return;
-    }
-
+    if (QFile::exists(path)) { emit datasetReady(path); return; }
     btn->setEnabled(false);
     progress->setVisible(true);
     dlmgr->downloadFile(ds.url, path);
