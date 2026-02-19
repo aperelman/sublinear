@@ -17,51 +17,45 @@ class QNetworkReply;
 class SnapBrowserWidget : public QWidget {
     Q_OBJECT
 public:
-    explicit SnapBrowserWidget(QWidget* parent = nullptr); //
-    void setDatasets(const QList<GraphInfo>& datasets); //
-
-    /**
-     * Public method to handle the transition from download to algorithm execution.
-     * This is called by MainWindow when the "Run" button is clicked.
-     */
-    void handleAnalysis(const QString& filePath); 
+    explicit SnapBrowserWidget(QWidget* parent = nullptr);
+    void setDatasets(const QList<GraphInfo>& datasets);
+    void handleAnalysis(const QString& filePath);
+    bool hasSelection() const;        // true if any dataset is selected in the list
+    QString selectedFilePath() const; // returns local path if downloaded, empty otherwise
 
 signals:
-    /**
-     * Emitted when a dataset is downloaded and ready, or when a local file is selected.
-     * Passing the filePath allows the MainWindow to track the active graph.
-     */
-    void datasetReady(const QString& filePath);
+    void datasetReady(const QString& filePath);  // emitted when download completes or local file activated
+    void datasetSelected();                       // emitted on any list selection change
 
 private slots:
-    void onDatasetSelected(); //
-    void onDownloadClicked(); //
-    void onDownloadProgress(qint64 r, qint64 t); //
-    void onDownloadFinished(const QString& f); //
-    void onDownloadError(const QString& e); //
-    void onRefreshClicked(); //
-    void onScrapeFinished(QNetworkReply* reply); //
-    void onDetailPageFinished(QNetworkReply* reply); //
+    void onDatasetSelected();
+    void onDownloadClicked();
+    void onDownloadProgress(qint64 r, qint64 t);
+    void onDownloadFinished(const QString& f);
+    void onDownloadError(const QString& e);
+    void onRefreshClicked();
+    void onScrapeFinished(QNetworkReply* reply);
+    void onDetailPageFinished(QNetworkReply* reply);
 
 private:
-    void setupUI(); //
-    void updateList(); //
-    void loadFromCache(); //
-    void saveToCache(); //
-    void fetchTriangleCounts(); //
-    QString getPath(const GraphInfo& ds); //
-    bool isDownloaded(const GraphInfo& ds); //
+    void setupUI();
+    void updateList();
+    void loadFromCache();
+    void saveToCache();
+    void fetchTriangleCounts();
+    QString getPath(const GraphInfo& ds);
+    bool isDownloaded(const GraphInfo& ds);
 
     // UI Elements
-    QListWidget* list = nullptr;
-    QLabel* info = nullptr;
-    QPushButton* btn = nullptr;
-    QPushButton* refreshBtn = nullptr;
-    QProgressBar* progress = nullptr;
-    
+    QListWidget*  list       = nullptr;
+    QLabel*       info       = nullptr;
+    QPushButton*  btn        = nullptr;
+    QPushButton*  refreshBtn = nullptr;
+    QProgressBar* progress   = nullptr;
+
     // Logic and Networking
-    QList<GraphInfo> datasets;
-    DownloadManager* dlmgr = nullptr;
+    QList<GraphInfo>       datasets;
+    DownloadManager*       dlmgr          = nullptr;
     QNetworkAccessManager* networkManager = nullptr;
-    QString dlPath;
+    QString                dlPath;
 };

@@ -1,14 +1,13 @@
-#ifndef MAINWINDOW_H
-#define MAINWINDOW_H
+#pragma once
 
 #include <QMainWindow>
 #include <QNetworkAccessManager>
-#include <QTabWidget>
-#include <QComboBox>
-#include <QPushButton>
-#include <QTextEdit>
 #include <QString>
 
+class QTabWidget;
+class QComboBox;
+class QPushButton;
+class QTextEdit;
 class GraphListWidget;
 class SnapBrowserWidget;
 
@@ -16,16 +15,16 @@ class MainWindow : public QMainWindow {
     Q_OBJECT
 
 public:
-    MainWindow(QWidget *parent = nullptr);
-    ~MainWindow();
+    explicit MainWindow(QWidget *parent = nullptr);
+    ~MainWindow() = default;
 
 private slots:
-    void handleNetworkReply();
-    void onRunAlgorithmClicked();
+    void checkRunRequirements();
     void onGraphSelected();
     void onGraphDoubleClicked();
-    void onDatasetReady(const QString& filePath); // Updated signature
-    void checkRunRequirements(); // New logic for button state
+    void onDatasetReady(const QString& filePath);
+    void onRunAlgorithmClicked();
+    void handleNetworkReply();
 
 private:
     void setupUI();
@@ -33,17 +32,13 @@ private:
     void loadSnapDatasets();
     void updateStatusBar(const QString& message);
 
-    // UI Pointers
-    QTabWidget* leftTabWidget = nullptr;
-    GraphListWidget* graphListWidget = nullptr;
-    SnapBrowserWidget* snapBrowserWidget = nullptr;
-    QComboBox* algorithmCombo = nullptr;
-    QPushButton* runButton = nullptr;
-    QTextEdit* resultsText = nullptr;
+    QTabWidget*          leftTabWidget   = nullptr;
+    GraphListWidget*     graphListWidget  = nullptr;
+    SnapBrowserWidget*   snapBrowserWidget = nullptr;
+    QComboBox*           algorithmCombo  = nullptr;
+    QPushButton*         runButton       = nullptr;
+    QTextEdit*           resultsText     = nullptr;
     QNetworkAccessManager* networkManager = nullptr;
 
-    // State variable to track the active graph path
     QString currentGraphPath;
 };
-
-#endif // MAINWINDOW_H
