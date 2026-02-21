@@ -10,6 +10,8 @@
 #include <QPushButton>
 #include <QTextEdit>
 #include <QTabWidget>
+#include <QFont>
+#include <QTextCursor>
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     setupUI();
@@ -58,8 +60,11 @@ void MainWindow::setupUI() {
 
     rightLayout->addWidget(algoGroup);
 
+    // Results area with styling
     resultsText = new QTextEdit();
     resultsText->setReadOnly(true);
+    resultsText->setFont(QFont("Monospace", 9));
+    resultsText->setStyleSheet("QTextEdit { background-color: #1e1e1e; color: #d4d4d4; }");
     rightLayout->addWidget(resultsText);
 
     mainLayout->addWidget(rightPanel, 1);
@@ -74,6 +79,10 @@ void MainWindow::setupUI() {
             this, &MainWindow::checkRunRequirements);
     connect(runButton, &QPushButton::clicked,
             this, &MainWindow::onRunAlgorithmClicked);
+
+    // Connect progress signal from SnapBrowserWidget
+    connect(snapBrowserWidget, &SnapBrowserWidget::analysisProgress,
+            this, &MainWindow::onAnalysisProgress);
 }
 
 void MainWindow::checkRunRequirements() {
@@ -106,19 +115,30 @@ void MainWindow::onRunAlgorithmClicked() {
         currentGraphPath = snapBrowserWidget->selectedFilePath();
 
     if (currentGraphPath.isEmpty()) {
-        // Dataset selected but not downloaded yet
         resultsText->append("Dataset not downloaded yet. Please click 'Download Dataset' first.");
         return;
     }
 
+    // Clear previous results
+    resultsText->clear();
+
     if (algoId == "exact_arboricity") {
-        resultsText->append("Running Exact Arboricity Calculate on: " + currentGraphPath);
+        resultsText->append("═══════════════════════════════════════════");
+        resultsText->append("  EXACT ARBORICITY CALCULATION");
+        resultsText->append("═══════════════════════════════════════════");
+        resultsText->append("");
+
         if (snapBrowserWidget)
             snapBrowserWidget->handleAnalysis(currentGraphPath);
     } else if (algoId == "triangle_counting") {
         resultsText->append("Running Triangle Counting on: " + currentGraphPath);
         // TODO: call triangle counting logic here
     }
+}
+
+void MainWindow::onAnalysisProgress(const QString& message) {
+    resultsText->append(message);
+    resultsText->moveCursor(QTextCursor::End);
 }
 
 void MainWindow::setupMenuBar()    {}

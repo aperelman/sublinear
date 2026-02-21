@@ -1,70 +1,108 @@
 cmake_minimum_required(VERSION 3.16)
 project(GraphAnalyzer VERSION 1.0.0)
 
-# 1. הגדרת נתיבים - חשוב להגדיר לפני find_package
-# מצביע לגרסה הספציפית שהתקנת עם ה-Online Installer
-set(CMAKE_PREFIX_PATH "C:/Qt/6.8.3/msvc2022_64")
+# -------------------------------------------------------------------
+# 1. Set vcpkg installation path (adjust if vcpkg is elsewhere)
+# -------------------------------------------------------------------
+set(VCPKG_INSTALL_PATH "C:/vcpkg/installed/x64-windows")
+# Add it to CMAKE_PREFIX_PATH so find_package can locate libraries
+list(APPEND CMAKE_PREFIX_PATH ${VCPKG_INSTALL_PATH})
 
-# 2. הגדרות C++
-set(CMAKE_CXX_STANDARD 23)
+# -------------------------------------------------------------------
+# 2. Qt path (adjust to your installation)
+# -------------------------------------------------------------------
+set(CMAKE_PREFIX_PATH "C:/Qt/6.8.3/msvc2022_64" ${CMAKE_PREFIX_PATH})
+
+# -------------------------------------------------------------------
+# 3. C++ settings
+# -------------------------------------------------------------------
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# 3. הגדרות אוטומטיות של Qt (MOC, UIC, RCC)
+if(MSVC)
+    add_compile_options(/EHsc)  # Enable C++ exceptions
+    add_compile_options(/utf-8) # Set UTF-8 encoding
+endif()
+
+# Qt auto tools
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
-# 4. מציאת חבילות Qt6
-find_package(Qt6 REQUIRED COMPONENTS 
-    Widgets 
+# -------------------------------------------------------------------
+# 4. Find Qt6 components
+# -------------------------------------------------------------------
+find_package(Qt6 REQUIRED COMPONENTS
+    Core
+    Widgets
     Network
 )
 
-# 5. מציאת Python (בדרך כלל מגיע מ-vcpkg או מהמערכת)
-find_package(Python3 REQUIRED COMPONENTS Interpreter)
+# -------------------------------------------------------------------
+# 5. Find ZLIB (now will be found via vcpkg path)
+# -------------------------------------------------------------------
+find_package(ZLIB REQUIRED)
 
-# 6. רשימת קבצי מקור (Sources)
+# -------------------------------------------------------------------
+# 6. Algorithm directory (adjust relative path as needed)
+# -------------------------------------------------------------------
+set(ALGORITHM_DIR "../algorithms/exact_arboricity")
+
+# -------------------------------------------------------------------
+# 7. Source files
+# -------------------------------------------------------------------
 set(SOURCES
     src/main.cpp
     src/mainwindow.cpp
     src/graph_list_widget.cpp
-    src/algorithm_runner.cpp
     src/download_manager.cpp
     src/snap_dataset_cache.cpp
     src/snap_browser_widget.cpp
+    src/density_algorithm.cpp
+    src/graph_analyzer_worker.cpp
+    ${ALGORITHM_DIR}/ExactArboricity.cpp
 )
 
-# 7. רשימת קבצי כותרת (Headers)
+# -------------------------------------------------------------------
+# 8. Header files
+# -------------------------------------------------------------------
 set(HEADERS
     src/mainwindow.h
     src/graph_list_widget.h
-    src/algorithm_runner.h
     src/graph_info.h
     src/snap_catalog.h
     src/download_manager.h
     src/snap_dataset_cache.h
     src/snap_browser_widget.h
+    src/density_algorithm.h
+    src/graph_analyzer_worker.h
+    ${ALGORITHM_DIR}/ExactArboricity.h
 )
 
-# 8. יצירת קובץ ההרצה
-add_executable(GraphAnalyzer
-    ${SOURCES}
-    ${HEADERS}
-)
+# -------------------------------------------------------------------
+# 9. Create executable
+# -------------------------------------------------------------------
+add_executable(GraphAnalyzer ${SOURCES} ${HEADERS})
 
-# 9. קישור ספריות Qt
-# השתמשנו ב-PRIVATE כי אלו תלויות פנימיות של האפליקציה
+# -------------------------------------------------------------------
+# 10. Link libraries
+# -------------------------------------------------------------------
 target_link_libraries(GraphAnalyzer PRIVATE
+    Qt6::Core
     Qt6::Widgets
     Qt6::Network
+    ZLIB::ZLIB
 )
 
-# 10. הגדרת נתיבי Include
+# -------------------------------------------------------------------
+# 11. Include directories
+# -------------------------------------------------------------------
 target_include_directories(GraphAnalyzer PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${ALGORITHM_DIR}
 )
 
-# 11. הגדרות התקנה (אופציונלי)
-install(TARGETS GraphAnalyzer
-    RUNTIME DESTINATION bin
-)
+# -------------------------------------------------------------------
+# 12. Installation (optional)
+# -------------------------------------------------------------------
+install(TARGETS GraphAnalyzer RUNTIME DESTINATION bin)

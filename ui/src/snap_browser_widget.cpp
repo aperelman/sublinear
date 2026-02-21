@@ -1,9 +1,9 @@
 #include "snap_browser_widget.h"
 #include "graph_info.h"
 #include "download_manager.h"
+#include "graph_analyzer_worker.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
-#include <QGroupBox>
 #include <QMessageBox>
 #include <QFile>
 #include <QDir>
@@ -17,19 +17,75 @@
 #include <QLabel>
 #include <QProgressBar>
 #include <QStandardPaths>
+#include <QThread>
+#include <zlib.h>
+#include <cmath>
 
+// ---------------------------------------------------------------------------
+// Helper: application data path
+// ---------------------------------------------------------------------------
+static QString dataPath() {
+    QString path = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) + "/data";
+    QDir().mkpath(path);
+    return path;
+}
+
+// ---------------------------------------------------------------------------
+// Decompression helper (zlib)
+// ---------------------------------------------------------------------------
+static bool decompressGzip(const QString& gzPath, const QString& outPath) {
+    gzFile gz = gzopen(gzPath.toLocal8Bit().constData(), "rb");
+    if (!gz)
+        return false;
+
+    FILE* out = fopen(outPath.toLocal8Bit().constData(), "wb");
+    if (!out) {
+        gzclose(gz);
+        return false;
+    }
+
+    char buffer[8192];
+    int bytesRead;
+    while ((bytesRead = gzread(gz, buffer, sizeof(buffer))) > 0) {
+        if (fwrite(buffer, 1, bytesRead, out) != (size_t)bytesRead) {
+            fclose(out);
+            gzclose(gz);
+            return false;
+        }
+    }
+
+    fclose(out);
+    gzclose(gz);
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// SnapBrowserWidget implementation
+// ---------------------------------------------------------------------------
 SnapBrowserWidget::SnapBrowserWidget(QWidget* p)
     : QWidget(p)
     , dlmgr(new DownloadManager(this))
     , networkManager(new QNetworkAccessManager(this))
+    , workerThread(nullptr)
+    , worker(nullptr)
 {
     setupUI();
 
-    connect(dlmgr, &DownloadManager::downloadProgress, this, &SnapBrowserWidget::onDownloadProgress);
-    connect(dlmgr, &DownloadManager::downloadFinished, this, &SnapBrowserWidget::onDownloadFinished);
-    connect(dlmgr, &DownloadManager::downloadError,    this, &SnapBrowserWidget::onDownloadError);
+    connect(dlmgr, &DownloadManager::downloadProgress,
+            this, &SnapBrowserWidget::onDownloadProgress);
+    connect(dlmgr, &DownloadManager::downloadFinished,
+            this, &SnapBrowserWidget::onDownloadFinished);
+    connect(dlmgr, &DownloadManager::downloadError,
+            this, &SnapBrowserWidget::onDownloadError);
 
     loadFromCache();
+}
+
+SnapBrowserWidget::~SnapBrowserWidget() {
+    if (workerThread) {
+        workerThread->quit();
+        workerThread->wait();
+    }
 }
 
 void SnapBrowserWidget::setupUI() {
@@ -59,23 +115,17 @@ void SnapBrowserWidget::setupUI() {
     progress->setVisible(false);
     layout->addWidget(progress);
 
-    connect(list,       &QListWidget::itemSelectionChanged, this, &SnapBrowserWidget::onDatasetSelected);
-    connect(btn,        &QPushButton::clicked,              this, &SnapBrowserWidget::onDownloadClicked);
-    connect(refreshBtn, &QPushButton::clicked,              this, &SnapBrowserWidget::onRefreshClicked);
+    connect(list,       &QListWidget::itemSelectionChanged,
+            this,       &SnapBrowserWidget::onDatasetSelected);
+    connect(btn,        &QPushButton::clicked,
+            this,       &SnapBrowserWidget::onDownloadClicked);
+    connect(refreshBtn, &QPushButton::clicked,
+            this,       &SnapBrowserWidget::onRefreshClicked);
 }
 
-void SnapBrowserWidget::handleAnalysis(const QString& filePath) {
-    if (filePath.isEmpty()) return;
-    QMessageBox::information(this, "Analysis", "Starting analysis on: " + filePath);
-}
-
-
-static QString dataPath() {
-    QString path = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) + "/data";
-    QDir().mkpath(path);
-    return path;
-}
-
+// ---------------------------------------------------------------------------
+// Public methods
+// ---------------------------------------------------------------------------
 bool SnapBrowserWidget::hasSelection() const {
     return list->currentRow() >= 0;
 }
@@ -86,10 +136,48 @@ QString SnapBrowserWidget::selectedFilePath() const {
     return datasets.at(row).localPath;
 }
 
+void SnapBrowserWidget::handleAnalysis(const QString& filePath) {
+    if (filePath.isEmpty())
+        return;
+
+    // If the file is still compressed, decompress it first
+    QString plainPath = filePath;
+    if (filePath.endsWith(".gz", Qt::CaseInsensitive)) {
+        plainPath.chop(3); // remove .gz
+        if (!QFile::exists(plainPath)) {
+            if (!decompressGzip(filePath, plainPath)) {
+                QMessageBox::critical(this, "Decompression Error",
+                                      "Failed to decompress " + filePath);
+                return;
+            }
+        }
+    }
+
+    // Run the C++ algorithm in a background thread
+    workerThread = new QThread(this);
+    worker = new GraphAnalyzerWorker(plainPath);
+    worker->moveToThread(workerThread);
+
+    connect(workerThread, &QThread::started, worker, &GraphAnalyzerWorker::process);
+    connect(worker, &GraphAnalyzerWorker::finished,
+            this, &SnapBrowserWidget::onAnalysisFinished);
+    connect(worker, &GraphAnalyzerWorker::error,
+            this, &SnapBrowserWidget::onAnalysisError);
+connect(worker, &GraphAnalyzerWorker::progress,
+        this, &SnapBrowserWidget::analysisProgress);
+    connect(worker, &GraphAnalyzerWorker::finished,
+            workerThread, &QThread::quit);
+    connect(worker, &GraphAnalyzerWorker::finished,
+            worker, &QObject::deleteLater);
+    connect(workerThread, &QThread::finished,
+            workerThread, &QObject::deleteLater);
+
+    workerThread->start();
+}
+
 // ---------------------------------------------------------------------------
 // Dataset selection
 // ---------------------------------------------------------------------------
-
 void SnapBrowserWidget::onDatasetSelected() {
     int row = list->currentRow();
     if (row < 0 || row >= datasets.size()) return;
@@ -105,7 +193,6 @@ void SnapBrowserWidget::onDatasetSelected() {
         ? english.toString((qlonglong)ds.numTriangles)
         : "N/A";
 
-    // Truncate description to 2 lines
     QString desc = ds.description.isEmpty() ? "No description available" : ds.description;
     if (desc.length() > 120) desc = desc.left(117) + "...";
 
@@ -137,14 +224,12 @@ void SnapBrowserWidget::onDatasetSelected() {
         btn->setText("Download Dataset");
     }
 
-    // Always notify MainWindow that a selection was made
     emit datasetSelected();
 }
 
 // ---------------------------------------------------------------------------
 // Download / activate
 // ---------------------------------------------------------------------------
-
 void SnapBrowserWidget::onDownloadClicked() {
     int row = list->currentRow();
     if (row < 0) return;
@@ -152,7 +237,7 @@ void SnapBrowserWidget::onDownloadClicked() {
     GraphInfo& ds = datasets[row];
     QString path = dataPath() + "/" + ds.filename;
 
-    // File already on disk — activate it immediately
+    // If already on disk, just activate it
     if (QFile::exists(path)) {
         ds.localPath = path;
         saveToCache();
@@ -164,6 +249,7 @@ void SnapBrowserWidget::onDownloadClicked() {
     // Start download
     btn->setEnabled(false);
     progress->setVisible(true);
+    progress->setValue(0);
     QDir().mkpath(dataPath());
     dlmgr->downloadFile(ds.url, path);
 }
@@ -177,16 +263,32 @@ void SnapBrowserWidget::onDownloadFinished(const QString& filePath) {
     progress->setVisible(false);
     btn->setEnabled(true);
 
-    // Persist localPath in matching dataset entry
+    // Decompress the downloaded .gz file to a plain text file
+    QString plainPath = filePath;
+    QString finalPath = filePath;
+    if (plainPath.endsWith(".gz", Qt::CaseInsensitive)) {
+        plainPath.chop(3);
+        if (decompressGzip(filePath, plainPath)) {
+            finalPath = plainPath;
+            // Optionally remove the .gz file to save space
+            // QFile::remove(filePath);
+        } else {
+            QMessageBox::warning(this, "Decompression Error",
+                                 "Failed to decompress " + filePath);
+            // Keep the .gz file as fallback
+        }
+    }
+
+    // Update dataset entry with the path to the (decompressed) file
     for (GraphInfo& ds : datasets) {
         if (dataPath() + "/" + ds.filename == filePath) {
-            ds.localPath = filePath;
+            ds.localPath = finalPath;
             break;
         }
     }
     saveToCache();
 
-    emit datasetReady(filePath);
+    emit datasetReady(finalPath);
     btn->setText("Activate Local Copy");
 }
 
@@ -197,9 +299,22 @@ void SnapBrowserWidget::onDownloadError(const QString& errorMsg) {
 }
 
 // ---------------------------------------------------------------------------
+// Analysis result slots
+// ---------------------------------------------------------------------------
+void SnapBrowserWidget::onAnalysisFinished(double result) {
+    QString message = QString("Exact arboricity (α₀): %1\nCeiling (α): %2")
+                          .arg(result, 0, 'g', 6)
+                          .arg(std::ceil(result));
+    QMessageBox::information(this, "Analysis Complete", message);
+}
+
+void SnapBrowserWidget::onAnalysisError(const QString& message) {
+    QMessageBox::critical(this, "Analysis Error", message);
+}
+
+// ---------------------------------------------------------------------------
 // Refresh / scrape from SNAP website
 // ---------------------------------------------------------------------------
-
 void SnapBrowserWidget::onRefreshClicked() {
     refreshBtn->setEnabled(false);
     QNetworkReply* reply = networkManager->get(
@@ -241,9 +356,13 @@ void SnapBrowserWidget::onScrapeFinished(QNetworkReply* reply) {
         ds.detailsUrl = QString("https://snap.stanford.edu/data/%1.html").arg(id);
         ds.filename   = id + ".txt.gz";
 
-        // Restore localPath if file still exists on disk
+        // Check if already downloaded (either .gz or decompressed)
         QString path = dataPath() + "/" + ds.filename;
-        if (QFile::exists(path))
+        QString plainPath = path;
+        if (plainPath.endsWith(".gz")) plainPath.chop(3);
+        if (QFile::exists(plainPath))
+            ds.localPath = plainPath;
+        else if (QFile::exists(path))
             ds.localPath = path;
 
         datasets.append(ds);
@@ -291,7 +410,6 @@ void SnapBrowserWidget::onDetailPageFinished(QNetworkReply* reply) {
             QRegularExpression::CaseInsensitiveOption | QRegularExpression::DotMatchesEverythingOption);
         QRegularExpressionMatch md = reDesc.match(html);
         if (md.hasMatch()) {
-            // Strip any inner HTML tags and trim
             QString desc = md.captured(1);
             desc.remove(QRegularExpression("<[^>]+>"));
             desc = desc.simplified();
@@ -301,8 +419,7 @@ void SnapBrowserWidget::onDetailPageFinished(QNetworkReply* reply) {
             }
         }
 
-        // Extract the best download URL from the Files table:
-        // Prefer *_combined.txt.gz, fall back to any .txt.gz, then .tar.gz
+        // Extract the best download URL from the Files table
         QRegularExpression reFile(
             "<a href=\"([^\"]+\\.(?:txt\\.gz|tar\\.gz))\"",
             QRegularExpression::CaseInsensitiveOption);
@@ -312,15 +429,12 @@ void SnapBrowserWidget::onDetailPageFinished(QNetworkReply* reply) {
         while (it.hasNext()) {
             QRegularExpressionMatch fm = it.next();
             QString href = fm.captured(1);
-            // Make absolute URL if relative
             if (!href.startsWith("http"))
                 href = "https://snap.stanford.edu/data/" + href;
-            // Prefer combined txt.gz
             if (href.contains("_combined.txt.gz", Qt::CaseInsensitive)) {
                 bestUrl = href;
                 break;
             }
-            // Accept any txt.gz or tar.gz as fallback
             if (bestUrl.isEmpty())
                 bestUrl = href;
         }
@@ -343,7 +457,6 @@ void SnapBrowserWidget::onDetailPageFinished(QNetworkReply* reply) {
 // ---------------------------------------------------------------------------
 // List / cache helpers
 // ---------------------------------------------------------------------------
-
 void SnapBrowserWidget::updateList() {
     list->clear();
     for (const auto& ds : datasets)
@@ -397,8 +510,4 @@ void SnapBrowserWidget::saveToCache() {
     QFile file("snap_catalog.json");
     if (file.open(QIODevice::WriteOnly))
         file.write(QJsonDocument(array).toJson());
-}
-
-bool SnapBrowserWidget::isDownloaded(const GraphInfo& ds) {
-    return !ds.localPath.isEmpty() || QFile::exists(dataPath() + "/" + ds.filename);
 }

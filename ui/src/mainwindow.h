@@ -24,6 +24,7 @@ private slots:
     void onGraphDoubleClicked();
     void onDatasetReady(const QString& filePath);
     void onRunAlgorithmClicked();
+    void onAnalysisProgress(const QString& message);     
     void handleNetworkReply();
 
 private:

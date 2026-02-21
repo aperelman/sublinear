@@ -7,8 +7,10 @@
 #include <QProgressBar>
 #include <QList>
 #include <QString>
+#include <QThread>
+#include "graph_analyzer_worker.h"
 
-// Forward declarations to reduce header coupling
+// Forward declarations
 struct GraphInfo;
 class DownloadManager;
 class QNetworkAccessManager;
@@ -18,14 +20,16 @@ class SnapBrowserWidget : public QWidget {
     Q_OBJECT
 public:
     explicit SnapBrowserWidget(QWidget* parent = nullptr);
+    ~SnapBrowserWidget();
     void setDatasets(const QList<GraphInfo>& datasets);
     void handleAnalysis(const QString& filePath);
-    bool hasSelection() const;        // true if any dataset is selected in the list
-    QString selectedFilePath() const; // returns local path if downloaded, empty otherwise
+    bool hasSelection() const;
+    QString selectedFilePath() const;
 
 signals:
-    void datasetReady(const QString& filePath);  // emitted when download completes or local file activated
-    void datasetSelected();                       // emitted on any list selection change
+    void datasetReady(const QString& filePath);
+    void datasetSelected();
+    void analysisProgress(const QString& message);
 
 private slots:
     void onDatasetSelected();
@@ -36,6 +40,8 @@ private slots:
     void onRefreshClicked();
     void onScrapeFinished(QNetworkReply* reply);
     void onDetailPageFinished(QNetworkReply* reply);
+    void onAnalysisFinished(double result);
+    void onAnalysisError(const QString& message);
 
 private:
     void setupUI();
@@ -46,16 +52,20 @@ private:
     QString getPath(const GraphInfo& ds);
     bool isDownloaded(const GraphInfo& ds);
 
-    // UI Elements
+    // UI
     QListWidget*  list       = nullptr;
     QLabel*       info       = nullptr;
     QPushButton*  btn        = nullptr;
     QPushButton*  refreshBtn = nullptr;
     QProgressBar* progress   = nullptr;
 
-    // Logic and Networking
+    // Logic
     QList<GraphInfo>       datasets;
     DownloadManager*       dlmgr          = nullptr;
     QNetworkAccessManager* networkManager = nullptr;
     QString                dlPath;
+    
+    // Worker
+    QThread*             workerThread = nullptr;
+    GraphAnalyzerWorker* worker       = nullptr;
 };
