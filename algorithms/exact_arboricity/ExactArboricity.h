@@ -3,19 +3,20 @@
 
 #include <vector>
 #include <utility>
-#include <unordered_map>
+#include <string>
+#include <functional>
 
 struct ArboricityOutput {
-    double max_avg_degree; // The exact alpha_0 (before ceiling)
-    int alpha_0;           // ceil(max_avg_degree)
-    int num_nodes_in_dense_subgraph;
+    double value;          // The calculated Arboricity (gamma)
+    int arboricity;       // Integer result
+    int num_nodes;        // Total nodes in the graph
 };
 
 class ExactArboricity {
 public:
     /**
-     * Computes the exact Maximum Average Degree (alpha_0) using Goldberg's Algorithm.
-     * Scales to large graphs using Push-Relabel with Gap Heuristic.
+     * Computes the exact Arboricity (gamma) using a flow-based binary search.
+     * Uses C++23 views and Nash-Williams forest decomposition logic.
      */
     static ArboricityOutput compute(const std::vector<std::pair<int, int>>& edges);
 
@@ -25,7 +26,6 @@ private:
         double cap;
     };
 
-    // Internal Max-Flow implementation (Push-Relabel)
     class MaxFlowSolver {
         int n;
         std::vector<std::vector<Edge>> adj;
