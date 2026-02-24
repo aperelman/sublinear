@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "graph_list_widget.h"
 #include "snap_browser_widget.h"
+#include "workers/triangle_counter_worker.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGroupBox>
@@ -12,6 +13,8 @@
 #include <QTabWidget>
 #include <QFont>
 #include <QTextCursor>
+#include <QThread>
+#include <QMessageBox>
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     setupUI();
@@ -29,7 +32,6 @@ void MainWindow::setupUI() {
     auto* centralWidget = new QWidget(this);
     auto* mainLayout = new QHBoxLayout(centralWidget);
 
-    // Left Panel: Tabs for data sources
     leftTabWidget = new QTabWidget();
     graphListWidget = new GraphListWidget();
     snapBrowserWidget = new SnapBrowserWidget();
@@ -38,11 +40,9 @@ void MainWindow::setupUI() {
     leftTabWidget->addTab(snapBrowserWidget, "SNAP Datasets");
     mainLayout->addWidget(leftTabWidget);
 
-    // Right Panel: Controls and Results
     auto* rightPanel = new QWidget();
     auto* rightLayout = new QVBoxLayout(rightPanel);
 
-    // Algorithm Selection
     auto* algoGroup = new QGroupBox("Algorithm Selection");
     auto* algoLayout = new QVBoxLayout(algoGroup);
 
@@ -60,7 +60,6 @@ void MainWindow::setupUI() {
 
     rightLayout->addWidget(algoGroup);
 
-    // Results area with styling
     resultsText = new QTextEdit();
     resultsText->setReadOnly(true);
     resultsText->setFont(QFont("Monospace", 9));
@@ -70,7 +69,6 @@ void MainWindow::setupUI() {
     mainLayout->addWidget(rightPanel, 1);
     setCentralWidget(centralWidget);
 
-    // Signal Connections
     connect(algorithmCombo, &QComboBox::currentIndexChanged,
             this, &MainWindow::checkRunRequirements);
     connect(snapBrowserWidget, &SnapBrowserWidget::datasetReady,
@@ -79,8 +77,6 @@ void MainWindow::setupUI() {
             this, &MainWindow::checkRunRequirements);
     connect(runButton, &QPushButton::clicked,
             this, &MainWindow::onRunAlgorithmClicked);
-
-    // Connect progress signal from SnapBrowserWidget
     connect(snapBrowserWidget, &SnapBrowserWidget::analysisProgress,
             this, &MainWindow::onAnalysisProgress);
 }
@@ -89,11 +85,6 @@ void MainWindow::checkRunRequirements() {
     bool hasAlgo  = (algorithmCombo->currentIndex() > 0);
     bool hasGraph = !currentGraphPath.isEmpty() || snapBrowserWidget->hasSelection();
     runButton->setEnabled(hasAlgo && hasGraph);
-}
-
-void MainWindow::onGraphSelected() {
-    currentGraphPath = "local_path_placeholder";
-    checkRunRequirements();
 }
 
 void MainWindow::onDatasetReady(const QString& filePath) {
@@ -105,35 +96,56 @@ void MainWindow::onDatasetReady(const QString& filePath) {
 void MainWindow::onRunAlgorithmClicked() {
     QString algoId = algorithmCombo->currentData().toString();
 
-    if (algoId.isEmpty()) {
-        resultsText->append("Please select an algorithm.");
-        return;
-    }
-
-    // If currentGraphPath not set yet, try to get it from the widget selection
     if (currentGraphPath.isEmpty())
         currentGraphPath = snapBrowserWidget->selectedFilePath();
 
     if (currentGraphPath.isEmpty()) {
-        resultsText->append("Dataset not downloaded yet. Please click 'Download Dataset' first.");
+        resultsText->append("Dataset not downloaded yet.");
         return;
     }
 
-    // Clear previous results
     resultsText->clear();
 
     if (algoId == "exact_arboricity") {
         resultsText->append("═══════════════════════════════════════════");
         resultsText->append("  EXACT ARBORICITY CALCULATION");
         resultsText->append("═══════════════════════════════════════════");
-        resultsText->append("");
-
         if (snapBrowserWidget)
             snapBrowserWidget->handleAnalysis(currentGraphPath);
+
     } else if (algoId == "triangle_counting") {
-        resultsText->append("Running Triangle Counting on: " + currentGraphPath);
-        // TODO: call triangle counting logic here
+        resultsText->append("═══════════════════════════════════════════");
+        resultsText->append("  TRIANGLE COUNTING");
+        resultsText->append("  (Arboricity will be computed automatically)");
+        resultsText->append("═══════════════════════════════════════════");
+        handleTriangleCounting(currentGraphPath);
     }
+}
+
+void MainWindow::handleTriangleCounting(const QString& filePath) {
+    auto* workerThread = new QThread(this);
+    auto* worker = new TriangleCounterWorker(filePath);
+    worker->moveToThread(workerThread);
+
+    connect(workerThread, &QThread::started,  worker, &TriangleCounterWorker::process);
+    connect(worker, &TriangleCounterWorker::finished, this, &MainWindow::onTriangleCountingFinished);
+    connect(worker, &TriangleCounterWorker::error,    this, &MainWindow::onTriangleCountingError);
+    connect(worker, &TriangleCounterWorker::progress, this, &MainWindow::onAnalysisProgress);
+
+    connect(worker, &TriangleCounterWorker::finished, workerThread, &QThread::quit);
+    connect(workerThread, &QThread::finished, worker,       &QObject::deleteLater);
+    connect(workerThread, &QThread::finished, workerThread, &QObject::deleteLater);
+
+    workerThread->start();
+}
+
+void MainWindow::onTriangleCountingFinished(double result) {
+    resultsText->append("─────────────────────────────────────");
+    resultsText->append(QString("Final Count Result: %1").arg(result));
+}
+
+void MainWindow::onTriangleCountingError(const QString& message) {
+    QMessageBox::critical(this, "Triangle Counting Error", message);
 }
 
 void MainWindow::onAnalysisProgress(const QString& message) {
@@ -141,12 +153,11 @@ void MainWindow::onAnalysisProgress(const QString& message) {
     resultsText->moveCursor(QTextCursor::End);
 }
 
-void MainWindow::setupMenuBar()    {}
-void MainWindow::loadSnapDatasets() {}
+void MainWindow::setupMenuBar()      {}
+void MainWindow::loadSnapDatasets()  {}
 void MainWindow::handleNetworkReply() {}
+void MainWindow::onGraphSelected()   {}
 void MainWindow::onGraphDoubleClicked() {}
-
 void MainWindow::updateStatusBar(const QString& message) {
-    if (statusBar())
-        statusBar()->showMessage(message);
+    if (statusBar()) statusBar()->showMessage(message);
 }

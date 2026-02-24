@@ -1,7 +1,7 @@
 #include "snap_browser_widget.h"
 #include "graph_info.h"
 #include "download_manager.h"
-#include "graph_analyzer_worker.h"
+
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QMessageBox>

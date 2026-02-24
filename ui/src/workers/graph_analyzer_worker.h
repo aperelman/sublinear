@@ -1,6 +1,4 @@
-
-#ifndef GRAPH_ANALYZER_WORKER_H
-#define GRAPH_ANALYZER_WORKER_H
+#pragma once
 
 #include <QObject>
 #include <QString>
@@ -15,12 +13,11 @@ public:
 public slots:
     void process();
 
-    signals:
-        void finished(double result);
+signals:
+    void finished(double result);
+    void progress(const QString& message);
     void error(const QString& message);
 
 private:
     QString m_path;
 };
-
-#endif // GRAPH_ANALYZER_WORKER_H

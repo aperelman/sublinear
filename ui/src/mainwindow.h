@@ -25,6 +25,8 @@ private slots:
     void onDatasetReady(const QString& filePath);
     void onRunAlgorithmClicked();
     void onAnalysisProgress(const QString& message);
+    void onTriangleCountingFinished(double result);
+    void onTriangleCountingError(const QString& message);
     void handleNetworkReply();
 
 private:
@@ -32,14 +34,15 @@ private:
     void setupMenuBar();
     void loadSnapDatasets();
     void updateStatusBar(const QString& message);
+    void handleTriangleCounting(const QString& filePath);
 
-    QTabWidget*          leftTabWidget   = nullptr;
-    GraphListWidget*     graphListWidget  = nullptr;
-    SnapBrowserWidget*   snapBrowserWidget = nullptr;
-    QComboBox*           algorithmCombo  = nullptr;
-    QPushButton*         runButton       = nullptr;
-    QTextEdit*           resultsText     = nullptr;
-    QNetworkAccessManager* networkManager = nullptr;
+    QTabWidget*            leftTabWidget    = nullptr;
+    GraphListWidget*       graphListWidget  = nullptr;
+    SnapBrowserWidget*     snapBrowserWidget = nullptr;
+    QComboBox*             algorithmCombo   = nullptr;
+    QPushButton*           runButton        = nullptr;
+    QTextEdit*             resultsText      = nullptr;
+    QNetworkAccessManager* networkManager   = nullptr;
 
     QString currentGraphPath;
 };
