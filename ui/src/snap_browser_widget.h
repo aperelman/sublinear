@@ -25,6 +25,7 @@ public:
     void handleAnalysis(const QString& filePath);
     bool hasSelection() const;
     QString selectedFilePath() const;
+    long long selectedTriangleCount() const;
 
 signals:
     void datasetReady(const QString& filePath);
