@@ -1,0 +1,33 @@
+**Instructions:**
+
+**Step 1 — Extract the zip**
+
+Extract maintaining the folder structure. You should get:
+```
+algorithms/
+  exact_arboricity/   ← 4 files
+  triangle_counting/  ← 2 files
+ui/
+  src/                ← 4 files
+  src/workers/        ← 4 files
+  CMakeLists.txt
+```
+
+**Step 2 — Copy files to their destinations**
+
+```cmd
+xcopy /s /y algorithms C:\BIU\algorithms\
+xcopy /s /y ui C:\BIU\ui\
+```
+
+**Step 3 — Clean rebuild**
+
+```cmd
+rmdir /s /q C:\BIU\ui\build
+mkdir C:\BIU\ui\build
+cd C:\BIU\ui\build
+cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Debug
+cmake --build . 2>&1 | findstr "error"
+```
+
+The `cmake ..` step will automatically delete any stale files from `ui/src/`. You should see `Removing stale file:` messages if any are found.

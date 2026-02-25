@@ -1,7 +1,6 @@
 #include "snap_browser_widget.h"
 #include "graph_info.h"
 #include "download_manager.h"
-
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QMessageBox>
@@ -510,4 +509,10 @@ void SnapBrowserWidget::saveToCache() {
     QFile file("snap_catalog.json");
     if (file.open(QIODevice::WriteOnly))
         file.write(QJsonDocument(array).toJson());
+}
+
+long long SnapBrowserWidget::selectedTriangleCount() const {
+    int row = list->currentRow();
+    if (row < 0 || row >= datasets.size()) return 0;
+    return datasets.at(row).numTriangles;
 }

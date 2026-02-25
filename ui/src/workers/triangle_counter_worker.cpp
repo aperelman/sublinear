@@ -1,76 +1,61 @@
 #include "triangle_counter_worker.h"
 #include "TriangleCounting.h"
 #include "density_algorithm.h"
-#include "ExactArboricity.h"
+#include <QDebug>
 #include <QDateTime>
 #include <QFileInfo>
 #include <QElapsedTimer>
-#include <cmath>
+#include <string>
+
+// התיקון הקריטי: הסרנו את ה-extern g_progressCallback שגרם לשגיאת הלינקר והטעינה
 
 void TriangleCounterWorker::process() {
     try {
-        QString ts = QDateTime::currentDateTime().toString("hh:mm:ss");
-        emit progress(QString("[%1] STARTING TRIANGLE COUNTING ANALYSIS").arg(ts));
+        QString timestamp = QDateTime::currentDateTime().toString("hh:mm:ss");
+        emit progress(QString("[%1] Starting Triangle Counting...").arg(timestamp));
 
-        QFileInfo fi(m_path);
-        if (!fi.exists()) {
-            emit error(QString("File does not exist: %1").arg(m_path));
+        // בדיקה שהקובץ קיים פיזית לפני הטעינה
+        QFileInfo fileInfo(m_path);
+        if (!fileInfo.exists()) {
+            emit error(QString("File not found: %1").arg(m_path));
             return;
         }
 
-        emit progress(QString("Target Graph: %1").arg(fi.fileName()));
-        emit progress("─────────────────────────────────────");
-
-        auto logFn = [this](const std::string& msg) {
+        // יצירת פונקציית לוג מקומית שמעבירה הודעות ישירות ל-UI
+        auto logger = [this](const std::string& msg) {
             emit progress(QString::fromStdString(msg));
         };
 
         QElapsedTimer timer;
         timer.start();
 
-        // Phase 1: Load edges once, reuse for both algorithms
-        emit progress("<b>Phase 1: Loading Graph Data...</b>");
-        auto edges = load_edges(m_path.toStdString(), logFn);
+        std::string stdPath = m_path.toStdString();
+        emit progress("Loading graph edges...");
 
-        if (edges.empty())
-            throw std::runtime_error("No edges loaded. Check if the file is a valid edge list.");
+        // שליחת ה-logger המקומי כפרמטר - זה מבטיח שהטעינה תצליח
+        auto edges = load_edges(stdPath, logger);
 
-        emit progress(QString("Successfully loaded %1 edges.").arg(edges.size()));
+        if (edges.empty()) {
+            throw std::runtime_error("Graph is empty or format is invalid (no edges parsed).");
+        }
 
-        // Phase 2: Compute exact arboricity first
-        emit progress("─────────────────────────────────────");
-        emit progress("<b>Phase 2: Computing Exact Arboricity...</b>");
+        emit progress(QString("Loaded %1 edges in %2s")
+            .arg(edges.size())
+            .arg(timer.elapsed() / 1000.0));
 
-        ArboricityOutput arboResult = ExactArboricity::compute(edges, logFn);
-        double arboricity = arboResult.value;
-
-        emit progress(QString("Arboricity (γ): %1").arg(arboricity));
-
-        // Phase 3: Use arboricity for triangle counting
-        emit progress("─────────────────────────────────────");
-        emit progress("<b>Phase 3: Triangle Counting (Importance Sampling)...</b>");
-        emit progress(QString("Using arboricity γ = %1 as sampling parameter").arg(arboricity));
-
+        // הגדרת קונפיגורציה לאלגוריתם
         TriangleCountingConfig config;
-        config.arboricity = arboricity;
-        config.num_trials = 10000;
-        config.seed       = 42;
+        config.arboricity = m_arboricity;
 
-        auto result_pair = TriangleCounting::count(edges, config);
-        double estimated_triangles = result_pair.first;
-        qint64 elapsedMs = timer.elapsed();
+        emit progress("Computing triangles (Importance Sampling)...");
+        auto result = TriangleCounting::count(edges, config);
 
-        ts = QDateTime::currentDateTime().toString("hh:mm:ss");
-        emit progress("─────────────────────────────────────");
-        emit progress(QString("[%1] ANALYSIS COMPLETE").arg(ts));
-        emit progress(QString("Total Time: %1 seconds").arg(elapsedMs / 1000.0));
-        emit progress(QString("Estimated Triangles: %1")
-            .arg(static_cast<long long>(std::round(estimated_triangles))));
-        emit progress("─────────────────────────────────────");
+        // דיווח תוצאה סופית
+        emit progress(QString("<b>Estimation: %1 triangles</b>").arg(static_cast<long long>(result.first)));
 
-        emit finished(estimated_triangles);
+        emit finished(result.first);
 
     } catch (const std::exception& e) {
-        emit error(QString("CRITICAL ERROR: %1").arg(e.what()));
+        emit error(QString("Error: %1").arg(e.what()));
     }
 }

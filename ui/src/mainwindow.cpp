@@ -32,18 +32,18 @@ void MainWindow::setupUI() {
     auto* centralWidget = new QWidget(this);
     auto* mainLayout = new QHBoxLayout(centralWidget);
 
-    leftTabWidget = new QTabWidget();
-    graphListWidget = new GraphListWidget();
+    leftTabWidget     = new QTabWidget();
+    graphListWidget   = new GraphListWidget();
     snapBrowserWidget = new SnapBrowserWidget();
 
-    leftTabWidget->addTab(graphListWidget, "Local Files");
+    leftTabWidget->addTab(graphListWidget,   "Local Files");
     leftTabWidget->addTab(snapBrowserWidget, "SNAP Datasets");
     mainLayout->addWidget(leftTabWidget);
 
-    auto* rightPanel = new QWidget();
+    auto* rightPanel  = new QWidget();
     auto* rightLayout = new QVBoxLayout(rightPanel);
 
-    auto* algoGroup = new QGroupBox("Algorithm Selection");
+    auto* algoGroup  = new QGroupBox("Algorithm Selection");
     auto* algoLayout = new QVBoxLayout(algoGroup);
 
     algorithmCombo = new QComboBox();
@@ -69,16 +69,16 @@ void MainWindow::setupUI() {
     mainLayout->addWidget(rightPanel, 1);
     setCentralWidget(centralWidget);
 
-    connect(algorithmCombo, &QComboBox::currentIndexChanged,
-            this, &MainWindow::checkRunRequirements);
+    connect(algorithmCombo,   &QComboBox::currentIndexChanged,
+            this,             &MainWindow::checkRunRequirements);
     connect(snapBrowserWidget, &SnapBrowserWidget::datasetReady,
-            this, &MainWindow::onDatasetReady);
+            this,             &MainWindow::onDatasetReady);
     connect(snapBrowserWidget, &SnapBrowserWidget::datasetSelected,
-            this, &MainWindow::checkRunRequirements);
-    connect(runButton, &QPushButton::clicked,
-            this, &MainWindow::onRunAlgorithmClicked);
+            this,             &MainWindow::checkRunRequirements);
+    connect(runButton,        &QPushButton::clicked,
+            this,             &MainWindow::onRunAlgorithmClicked);
     connect(snapBrowserWidget, &SnapBrowserWidget::analysisProgress,
-            this, &MainWindow::onAnalysisProgress);
+            this,             &MainWindow::onAnalysisProgress);
 }
 
 void MainWindow::checkRunRequirements() {
@@ -116,25 +116,38 @@ void MainWindow::onRunAlgorithmClicked() {
     } else if (algoId == "triangle_counting") {
         resultsText->append("═══════════════════════════════════════════");
         resultsText->append("  TRIANGLE COUNTING");
-        resultsText->append("  (Arboricity will be computed automatically)");
+        resultsText->append("  (Arboricity computed automatically)");
         resultsText->append("═══════════════════════════════════════════");
-        handleTriangleCounting(currentGraphPath);
+
+        // Get SNAP triangle count for the selected dataset
+        long long T_snap = snapBrowserWidget->selectedTriangleCount();
+        handleTriangleCounting(currentGraphPath, T_snap);
+        // Get SNAP triangle count for the selected dataset
+         T_snap = snapBrowserWidget->selectedTriangleCount();
+        handleTriangleCounting(currentGraphPath, T_snap);
     }
 }
 
-void MainWindow::handleTriangleCounting(const QString& filePath) {
+void MainWindow::handleTriangleCounting(const QString& filePath, long long T_snap) {
     auto* workerThread = new QThread(this);
-    auto* worker = new TriangleCounterWorker(filePath);
+    auto* worker       = new TriangleCounterWorker(filePath, T_snap);
     worker->moveToThread(workerThread);
 
-    connect(workerThread, &QThread::started,  worker, &TriangleCounterWorker::process);
-    connect(worker, &TriangleCounterWorker::finished, this, &MainWindow::onTriangleCountingFinished);
-    connect(worker, &TriangleCounterWorker::error,    this, &MainWindow::onTriangleCountingError);
-    connect(worker, &TriangleCounterWorker::progress, this, &MainWindow::onAnalysisProgress);
+    connect(workerThread, &QThread::started,
+            worker,       &TriangleCounterWorker::process);
+    connect(worker, &TriangleCounterWorker::finished,
+            this,   &MainWindow::onTriangleCountingFinished);
+    connect(worker, &TriangleCounterWorker::error,
+            this,   &MainWindow::onTriangleCountingError);
+    connect(worker, &TriangleCounterWorker::progress,
+            this,   &MainWindow::onAnalysisProgress);
 
-    connect(worker, &TriangleCounterWorker::finished, workerThread, &QThread::quit);
-    connect(workerThread, &QThread::finished, worker,       &QObject::deleteLater);
-    connect(workerThread, &QThread::finished, workerThread, &QObject::deleteLater);
+    connect(worker,       &TriangleCounterWorker::finished,
+            workerThread, &QThread::quit);
+    connect(workerThread, &QThread::finished,
+            worker,       &QObject::deleteLater);
+    connect(workerThread, &QThread::finished,
+            workerThread, &QObject::deleteLater);
 
     workerThread->start();
 }
@@ -153,10 +166,10 @@ void MainWindow::onAnalysisProgress(const QString& message) {
     resultsText->moveCursor(QTextCursor::End);
 }
 
-void MainWindow::setupMenuBar()      {}
-void MainWindow::loadSnapDatasets()  {}
+void MainWindow::setupMenuBar()       {}
+void MainWindow::loadSnapDatasets()   {}
 void MainWindow::handleNetworkReply() {}
-void MainWindow::onGraphSelected()   {}
+void MainWindow::onGraphSelected()    {}
 void MainWindow::onGraphDoubleClicked() {}
 void MainWindow::updateStatusBar(const QString& message) {
     if (statusBar()) statusBar()->showMessage(message);

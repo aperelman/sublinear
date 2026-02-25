@@ -5,12 +5,17 @@
 #include <utility>
 #include <functional>
 
-// Load edges from a SNAP-format edge list file
+/**
+ * @brief טוען רשימת קשתות מקובץ טקסט (פורמט SNAP).
+ * הפונקציה הופרדה כדי לאפשר ל-Worker להשתמש באותה לוגיקה.
+ */
 std::vector<std::pair<int, int>> load_edges(
     const std::string& filePath,
     std::function<void(const std::string&)> log = nullptr);
 
-// Load graph from file and compute exact arboricity
+/**
+ * @brief טוען גרף מקובץ ומחשב אבוריסיטי מדויקת.
+ */
 double calculateExactDensity(
     const std::string& filePath,
     std::function<void(const std::string&)> log = nullptr);

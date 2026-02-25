@@ -34,7 +34,7 @@ private:
     void setupMenuBar();
     void loadSnapDatasets();
     void updateStatusBar(const QString& message);
-    void handleTriangleCounting(const QString& filePath);
+    void handleTriangleCounting(const QString& filePath, long long T_snap = 0);
 
     QTabWidget*            leftTabWidget    = nullptr;
     GraphListWidget*       graphListWidget  = nullptr;
