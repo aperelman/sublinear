@@ -1,135 +1,62 @@
 #include "graph_list_widget.h"
-#include <QVBoxLayout>
-#include <QHBoxLayout>
-#include <QGroupBox>
-#include <QMessageBox>
-#include <QFileDialog>
-#include <QDir>
-#include <QFileInfo>
+#include <QHeaderView>
+#include <QRegularExpression>
+#include <QTableWidgetItem>
 
-// Implementation of the Constructor (Fixed LNK2019 for GraphListWidget::GraphListWidget)
-GraphListWidget::GraphListWidget(QWidget* parent) : QWidget(parent) {
-    setupUI();
-    currentDirectory = findDefaultGraphDirectory();
-    if (!currentDirectory.isEmpty()) {
-        loadGraphsFromDirectory(currentDirectory);
+GraphListWidget::GraphListWidget(QWidget *parent) : QTableWidget(parent) {
+    setColumnCount(1);
+    setHorizontalHeaderLabels({"Dataset Name"});
+    horizontalHeader()->setStretchLastSection(true);
+    setSelectionBehavior(QAbstractItemView::SelectRows);
+    setSelectionMode(QAbstractItemView::SingleSelection);
+    setEditTriggers(QAbstractItemView::NoEditTriggers);
+    verticalHeader()->setVisible(false);
+
+    m_internalManager = new QNetworkAccessManager(this);
+
+    connect(m_internalManager, &QNetworkAccessManager::finished, this, &GraphListWidget::onMainPageDownloaded);
+    connect(this, &QTableWidget::itemSelectionChanged, this, &GraphListWidget::onRowSelected);
+}
+
+void GraphListWidget::fetchNamesOnly() {
+    QUrl url("https://snap.stanford.edu/data/index.html");
+    m_internalManager->get(QNetworkRequest(url));
+}
+
+void GraphListWidget::onMainPageDownloaded(QNetworkReply* reply) {
+    if (reply->error() != QNetworkReply::NoError) {
+        reply->deleteLater();
+        return;
     }
-}
 
-// Implementation of UI setup and signal connections
-void GraphListWidget::setupUI() {
-    auto* layout = new QVBoxLayout(this);
-    auto* filterLayout = new QHBoxLayout();
+    QString html = reply->readAll();
+    reply->deleteLater();
+    setRowCount(0);
 
-    filterEdit = new QLineEdit();
-    filterEdit->setPlaceholderText("Filter graphs...");
-    browseButton = new QPushButton("Browse");
-    refreshButton = new QPushButton("Refresh");
+    QRegularExpression re("<a href=\"([^\"]+?\\.html)\">([^<]+)</a>");
+    QRegularExpressionMatchIterator i = re.globalMatch(html);
 
-    filterLayout->addWidget(filterEdit);
-    filterLayout->addWidget(browseButton);
-    filterLayout->addWidget(refreshButton);
+    setUpdatesEnabled(false);
+    while (i.hasNext()) {
+        QRegularExpressionMatch match = i.next();
+        QString urlPath = match.captured(1);
+        QString name = match.captured(2);
 
-    graphList = new QListWidget();
-    statsLabel = new QLabel("Select a graph to see details");
-    statsLabel->setWordWrap(true);
+        if (urlPath.contains("/") || urlPath.startsWith("index")) continue;
 
-    layout->addLayout(filterLayout);
-    layout->addWidget(graphList);
-    layout->addWidget(statsLabel);
-
-    connect(filterEdit, &QLineEdit::textChanged, this, &GraphListWidget::onFilterTextChanged);
-    connect(browseButton, &QPushButton::clicked, this, &GraphListWidget::onBrowseClicked);
-    connect(refreshButton, &QPushButton::clicked, this, &GraphListWidget::onRefreshClicked);
-    connect(graphList, &QListWidget::itemSelectionChanged, this, &GraphListWidget::onSelectionChanged);
-    connect(graphList, &QListWidget::itemDoubleClicked, this, &GraphListWidget::onItemDoubleClicked);
-}
-
-QString GraphListWidget::findDefaultGraphDirectory() {
-    return QDir::currentPath();
-}
-
-// Fixed LNK2019 for currentGraph
-GraphInfo GraphListWidget::currentGraph() const {
-    int row = graphList->currentRow();
-    if (row >= 0 && row < filteredGraphs.size()) {
-        return filteredGraphs[row];
+        int row = rowCount();
+        insertRow(row);
+        QTableWidgetItem* item = new QTableWidgetItem(name);
+        item->setData(Qt::UserRole, urlPath);
+        setItem(row, 0, item);
     }
-    return GraphInfo();
+    setUpdatesEnabled(true);
 }
 
-// Fixed LNK2019 for hasSelection
-bool GraphListWidget::hasSelection() const {
-    return graphList->currentRow() >= 0;
-}
+void GraphListWidget::onRowSelected() {
+    QList<QTableWidgetItem*> selected = selectedItems();
+    if (selected.isEmpty()) return;
 
-void GraphListWidget::loadGraphsFromDirectory(const QString& dirPath) {
-    currentDirectory = dirPath;
-    graphs.clear();
-    QDir dir(dirPath);
-    if (!dir.exists()) return;
-
-    QStringList filters = {"*.txt", "*.edges", "*.graphml"};
-    QFileInfoList files = dir.entryInfoList(filters, QDir::Files | QDir::Readable, QDir::Name);
-
-    for (const auto& fileInfo : files) {
-        GraphInfo info;
-        info.name = fileInfo.baseName();
-        info.filename = fileInfo.fileName();
-        info.localPath = fileInfo.absoluteFilePath();
-        info.fileSizeString = QString::number(fileInfo.size() / 1024) + " KB";
-        info.format = fileInfo.suffix().toUpper();
-        graphs.append(info);
-    }
-    updateGraphList();
-}
-
-void GraphListWidget::updateGraphList() {
-    graphList->clear();
-    filteredGraphs.clear();
-    QString filter = filterEdit->text().toLower();
-    
-    for (const auto& graph : graphs) {
-        if (filter.isEmpty() || graph.name.toLower().contains(filter)) {
-            filteredGraphs.append(graph);
-            QString displayText = QString("%1 (%2)").arg(graph.name).arg(graph.fileSizeString);
-            auto* item = new QListWidgetItem(displayText);
-            graphList->addItem(item);
-        }
-    }
-}
-
-// Fixed LNK2019 for Slot implementations
-void GraphListWidget::onSelectionChanged() {
-    if (!hasSelection()) return;
-    GraphInfo graph = currentGraph();
-    QString info = QString("<b>%1</b><br>Size: %2<br>Format: %3")
-        .arg(graph.name).arg(graph.fileSizeString).arg(graph.format);
-    statsLabel->setText(info);
-    emit graphSelected(graph);
-}
-
-void GraphListWidget::onItemDoubleClicked(QListWidgetItem* item) {
-    Q_UNUSED(item);
-    if (hasSelection()) {
-        emit graphDoubleClicked(currentGraph());
-    }
-}
-
-void GraphListWidget::onBrowseClicked() {
-    QString dir = QFileDialog::getExistingDirectory(this, "Select Graph Directory", currentDirectory);
-    if (!dir.isEmpty()) {
-        loadGraphsFromDirectory(dir);
-    }
-}
-
-void GraphListWidget::onRefreshClicked() {
-    if (!currentDirectory.isEmpty()) {
-        loadGraphsFromDirectory(currentDirectory);
-    }
-}
-
-void GraphListWidget::onFilterTextChanged(const QString& text) {
-    Q_UNUSED(text);
-    updateGraphList();
+    QTableWidgetItem* item = selected.first();
+    emit requestMetadata(item->text(), item->data(Qt::UserRole).toString());
 }

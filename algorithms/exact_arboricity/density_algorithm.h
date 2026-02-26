@@ -1,21 +1,20 @@
-#pragma once
+#ifndef DENSITY_ALGORITHM_H
+#define DENSITY_ALGORITHM_H
 
-#include <string>
+#include <map>
 #include <vector>
-#include <utility>
-#include <functional>
+#include <string>
 
-/**
- * @brief טוען רשימת קשתות מקובץ טקסט (פורמט SNAP).
- * הפונקציה הופרדה כדי לאפשר ל-Worker להשתמש באותה לוגיקה.
- */
-std::vector<std::pair<int, int>> load_edges(
-    const std::string& filePath,
-    std::function<void(const std::string&)> log = nullptr);
+namespace Arboricity {
 
-/**
- * @brief טוען גרף מקובץ ומחשב אבוריסיטי מדויקת.
- */
-double calculateExactDensity(
-    const std::string& filePath,
-    std::function<void(const std::string&)> log = nullptr);
+    struct GraphAnalysisResult {
+        size_t numNodes;
+        size_t numEdges;
+        double density;
+    };
+
+    std::map<int, std::vector<int>> loadGraph(const std::string& filename);
+    GraphAnalysisResult analyzeAndCount(const std::map<int, std::vector<int>>& adj, double delta);
+}
+
+#endif

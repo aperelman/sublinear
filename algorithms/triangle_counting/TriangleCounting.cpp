@@ -1,117 +1,75 @@
 #include "TriangleCounting.h"
-#include <random>
-#include <unordered_map>
-#include <unordered_set>
+#include <fstream>
+#include <sstream>
 #include <algorithm>
-#include <cmath>
+#include <vector>
+#include <map>
 
-using AdjMap = std::unordered_map<int, std::unordered_set<int>>;
+namespace Triangle {
 
-static AdjMap buildAdjacency(const std::vector<std::pair<int,int>>& edges) {
-    AdjMap adj;
-    for (auto& [u, v] : edges)
-        if (u != v) { adj[u].insert(v); adj[v].insert(u); }
-    return adj;
-}
+    // Implementation of graph loading
+    std::map<int, std::vector<int>> loadGraph(const std::string& filename) {
+        std::map<int, std::vector<int>> adj;
+        std::ifstream infile(filename);
+        if (!infile.is_open()) return adj;
 
-static std::vector<std::pair<int,int>>
-deduplicateEdges(const std::vector<std::pair<int,int>>& edges) {
-    std::vector<std::pair<int,int>> result;
-    result.reserve(edges.size());
-    for (auto& [u, v] : edges)
-        if (u != v)
-            result.emplace_back(std::min(u,v), std::max(u,v));
-    std::sort(result.begin(), result.end());
-    result.erase(std::unique(result.begin(), result.end()), result.end());
-    return result;
-}
+        std::string line;
+        while (std::getline(infile, line)) {
+            // Skip comments and empty lines
+            if (line.empty() || line[0] == '#' || line[0] == '%') continue;
 
-TriangleCountingResult TriangleCounting::count(
-    const std::vector<std::pair<int,int>>& edges,
-    const TriangleCountingConfig& config)
-{
-    if (edges.empty()) return {0.0, {}};
+            std::stringstream ss(line);
+            int u, v;
+            if (ss >> u >> v) {
+                if (u == v) continue; // Skip self-loops
+                adj[u].push_back(v);
+                adj[v].push_back(u);
+            }
+        }
 
-    auto adj      = buildAdjacency(edges);
-    auto allEdges = deduplicateEdges(edges);
-    size_t m      = allEdges.size();
-    if (m == 0) return {0.0, {}};
+        // Clean up adjacency list: sort and remove duplicates for binary search efficiency
+        for (auto& pair : adj) {
+            std::sort(pair.second.begin(), pair.second.end());
+            pair.second.erase(std::unique(pair.second.begin(), pair.second.end()), pair.second.end());
+        }
 
-    std::mt19937_64 rng(config.seed);
-    std::uniform_real_distribution<double> uniform01(0.0, 1.0);
-
-    // -----------------------------------------------------------
-    // Compute r per paper:  r = m * alpha / (epsilon * t')
-    // where t' = 0.1 * T  (T from SNAP)
-    // Fallback: r = m (sample all edges) if T not known
-    // -----------------------------------------------------------
-    size_t r;
-    if (config.T_estimate > 0) {
-        double t_prime = 0.1 * (double)config.T_estimate;
-        double r_exact = ((double)m * config.arboricity) / (config.epsilon * t_prime);
-        r = std::min((size_t)std::ceil(r_exact), m);
-    } else {
-        r = m; // fallback: use all edges
+        return adj;
     }
 
-    double p1 = (double)r / (double)m;
+    // Implementation of triangle counting
+    GraphAnalysisResult analyzeAndCount(const std::map<int, std::vector<int>>& adj, double delta) {
+        GraphAnalysisResult result = {0, 0, 0};
+        result.numNodes = adj.size();
 
-    // -----------------------------------------------------------
-    // Stage 1: Uniform edge sparsification — sample R ⊆ E
-    // -----------------------------------------------------------
-    std::vector<std::pair<int,int>> R;
-    R.reserve(r);
-    for (auto& e : allEdges)
-        if (uniform01(rng) < p1)
-            R.push_back(e);
+        long long total_degree = 0;
+        for (const auto& [u, neighbors] : adj) {
+            total_degree += neighbors.size();
+        }
+        result.numEdges = total_degree / 2;
 
-    if (R.empty()) return {0.0, {}};
+        long long triangle_count = 0;
 
-    // -----------------------------------------------------------
-    // Stage 2: d(e) = min(deg(u), deg(v)),  d(R) = Σ d(e)
-    // -----------------------------------------------------------
-    std::vector<double> weights(R.size());
-    double dR = 0.0;
-    for (size_t i = 0; i < R.size(); ++i) {
-        auto [u, v] = R[i];
-        double w    = (double)std::min(adj[u].size(), adj[v].size());
-        weights[i]  = w;
-        dR         += w;
+        // Iterate through each vertex u
+        for (const auto& [u, neighbors] : adj) {
+            // Check every pair of neighbors (v, w)
+            for (size_t i = 0; i < neighbors.size(); ++i) {
+                for (size_t j = i + 1; j < neighbors.size(); ++j) {
+                    int v = neighbors[i];
+                    int w = neighbors[j];
+
+                    // To avoid triple-counting, we only check if u < v < w
+                    if (u < v && v < w) {
+                        const auto& v_neighbors = adj.at(v);
+                        // Binary search for w in v's adjacency list
+                        if (std::binary_search(v_neighbors.begin(), v_neighbors.end(), w)) {
+                            triangle_count++;
+                        }
+                    }
+                }
+            }
+        }
+
+        result.numTriangles = triangle_count;
+        return result;
     }
-    if (dR == 0.0) return {0.0, {}};
-
-    // -----------------------------------------------------------
-    // Stage 3: k = r trials of wedge sampling
-    // -----------------------------------------------------------
-    std::discrete_distribution<size_t> edgeDist(weights.begin(), weights.end());
-    size_t k = r;  // number of trials = r per paper
-    size_t X = 0;
-
-    for (size_t i = 0; i < k; ++i) {
-        size_t idx  = edgeDist(rng);
-        auto [a, b] = R[idx];
-
-        int u = (adj[a].size() <= adj[b].size()) ? a : b;
-        int v = (u == a) ? b : a;
-
-        const auto& nu = adj[u];
-        size_t wIdx    = std::uniform_int_distribution<size_t>(0, nu.size()-1)(rng);
-        auto it        = nu.begin();
-        std::advance(it, wIdx);
-        int w = *it;
-
-        if (w != v && adj[v].count(w))
-            ++X;
-    }
-
-    // -----------------------------------------------------------
-    // Estimator: T̂ = (X/k) * d(R) / p1
-    // -----------------------------------------------------------
-    double T_hat = ((double)X / (double)k) * dR / p1;
-
-    TriangleCountingStats stats;
-    stats.total_weight = dR;
-    stats.r            = r;
-
-    return {T_hat, stats};
 }

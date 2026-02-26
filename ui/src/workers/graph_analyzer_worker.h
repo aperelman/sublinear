@@ -1,23 +1,25 @@
-#pragma once
+#ifndef GRAPH_ANALYZER_WORKER_H
+#define GRAPH_ANALYZER_WORKER_H
 
 #include <QObject>
 #include <QString>
 
 class GraphAnalyzerWorker : public QObject {
     Q_OBJECT
-
 public:
-    explicit GraphAnalyzerWorker(const QString& path, QObject* parent = nullptr)
-        : QObject(parent), m_path(path) {}
+    explicit GraphAnalyzerWorker(const QString& filePath, QObject* parent = nullptr);
 
 public slots:
     void process();
 
-signals:
-    void finished(double result);
-    void progress(const QString& message);
+    signals:
+        void progress(const QString& message);
+    void graphDetailsReady(const QString& path, int nodes, int edges, double density);
     void error(const QString& message);
+    void finished();
 
 private:
-    QString m_path;
+    QString m_filePath;
 };
+
+#endif

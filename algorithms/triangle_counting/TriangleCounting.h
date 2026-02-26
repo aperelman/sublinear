@@ -1,28 +1,20 @@
-#pragma once
+#ifndef TRIANGLE_COUNTING_H
+#define TRIANGLE_COUNTING_H
 
-#include <vector>
-#include <utility>
-#include <cstdint>
 #include <string>
-#include <functional>
+#include <vector>
+#include <map>
 
-struct TriangleCountingConfig {
-    double   arboricity  = 3.0;
-    double   epsilon     = 0.1;   // error tolerance
-    long long T_estimate = 0;     // triangle count from SNAP (0 = use fallback)
-    uint64_t seed        = 42;
-};
+namespace Triangle {
 
-struct TriangleCountingStats {
-    double total_weight = 0.0;
-    size_t r            = 0;      // actual sample size used
-};
+    struct GraphAnalysisResult {
+        size_t numNodes;    // Changed from 'nodes' to 'numNodes'
+        size_t numEdges;    // Changed from 'edges' to 'numEdges'
+        size_t numTriangles; // Changed from 'triangles' to 'numTriangles'
+    };
 
-using TriangleCountingResult = std::pair<double, TriangleCountingStats>;
+    std::map<int, std::vector<int>> loadGraph(const std::string& filename);
+    GraphAnalysisResult analyzeAndCount(const std::map<int, std::vector<int>>& adj, double delta);
+}
 
-class TriangleCounting {
-public:
-    static TriangleCountingResult count(
-        const std::vector<std::pair<int, int>>& edges,
-        const TriangleCountingConfig& config);
-};
+#endif

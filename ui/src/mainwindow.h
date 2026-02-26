@@ -1,48 +1,57 @@
-#pragma once
+#ifndef MAINWINDOW_H
+#define MAINWINDOW_H
 
 #include <QMainWindow>
 #include <QNetworkAccessManager>
-#include <QString>
+#include <QJsonArray>
+#include <QLabel>
+#include <QTextEdit>
+#include <QListWidget>
+#include <QComboBox>
+#include <QPushButton>
+#include <QTabWidget>
 
-class QTabWidget;
-class QComboBox;
-class QPushButton;
-class QTextEdit;
-class GraphListWidget;
-class SnapBrowserWidget;
+class GraphListWidget; // Forward declaration
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
 public:
     explicit MainWindow(QWidget *parent = nullptr);
-    ~MainWindow() = default;
+    ~MainWindow();
+    void appendLog(const QString& message);
 
 private slots:
-    void checkRunRequirements();
-    void onGraphSelected();
-    void onGraphDoubleClicked();
-    void onDatasetReady(const QString& filePath);
-    void onRunAlgorithmClicked();
-    void onAnalysisProgress(const QString& message);
-    void onTriangleCountingFinished(double result);
-    void onTriangleCountingError(const QString& message);
-    void handleNetworkReply();
+    void onRefreshSnapRequested();
+    void onDownloadClicked();
+    void onRunClicked();
+    void onSnapGraphSelected(const QString& name, const QString& urlPath);
+    void onLocalItemSelected(const QString &name);
 
 private:
-    void setupUI();
-    void setupMenuBar();
-    void loadSnapDatasets();
-    void updateStatusBar(const QString& message);
-    void handleTriangleCounting(const QString& filePath, long long T_snap = 0);
+    void setupManualLayout();
+    void loadInitialData();
+    void parseSubPageMetadata(const QString& html);
 
-    QTabWidget*            leftTabWidget    = nullptr;
-    GraphListWidget*       graphListWidget  = nullptr;
-    SnapBrowserWidget*     snapBrowserWidget = nullptr;
-    QComboBox*             algorithmCombo   = nullptr;
-    QPushButton*           runButton        = nullptr;
-    QTextEdit*             resultsText      = nullptr;
-    QNetworkAccessManager* networkManager   = nullptr;
+    // UI Elements
+    QTabWidget *m_tabWidget;
+    QListWidget *m_localList;
+    GraphListWidget *m_graphList;
 
-    QString currentGraphPath;
+    QLabel *m_lblNodes;
+    QLabel *m_lblEdges;
+    QLabel *m_lblTriangles;
+
+    QPushButton *m_btnRefreshSnap;
+    QPushButton *m_btnDownload;
+    QPushButton *m_runBtn;
+    QComboBox *m_algoCombo;
+    QTextEdit *m_logArea;
+
+    // Data & Network
+    QJsonArray m_cachedDatasets;
+    QNetworkAccessManager *m_networkManager;
+    QString m_currentSnapUrl;
 };
+
+#endif

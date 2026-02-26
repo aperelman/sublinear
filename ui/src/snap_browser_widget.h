@@ -1,72 +1,36 @@
-#pragma once
+#ifndef SNAP_BROWSER_WIDGET_H
+#define SNAP_BROWSER_WIDGET_H
 
 #include <QWidget>
-#include <QListWidget>
+#include <QLineEdit>
 #include <QPushButton>
+#include <QListWidget>
 #include <QLabel>
 #include <QProgressBar>
-#include <QList>
-#include <QString>
-#include <QThread>
-#include "graph_analyzer_worker.h"
+#include "snap_catalog.h" // חייב להיות כאן עבור SNAPDataset
+#include "download_manager.h"
 
-// Forward declarations
-struct GraphInfo;
-class DownloadManager;
-class QNetworkAccessManager;
-class QNetworkReply;
-
-class SnapBrowserWidget : public QWidget {
+class SNAPBrowserWidget : public QWidget {
     Q_OBJECT
 public:
-    explicit SnapBrowserWidget(QWidget* parent = nullptr);
-    ~SnapBrowserWidget();
-    void setDatasets(const QList<GraphInfo>& datasets);
-    void handleAnalysis(const QString& filePath);
-    bool hasSelection() const;
-    QString selectedFilePath() const;
-    long long selectedTriangleCount() const;
+    explicit SNAPBrowserWidget(QWidget *parent = nullptr);
 
-signals:
+    signals:
+        // עכשיו ה-Compiler מכיר את SNAPDataset
+        void datasetSelected(const SNAPDataset& dataset);
     void datasetReady(const QString& filePath);
-    void datasetSelected();
     void analysisProgress(const QString& message);
 
 private slots:
-    void onDatasetSelected();
-    void onDownloadClicked();
-    void onDownloadProgress(qint64 r, qint64 t);
-    void onDownloadFinished(const QString& f);
-    void onDownloadError(const QString& e);
-    void onRefreshClicked();
-    void onScrapeFinished(QNetworkReply* reply);
-    void onDetailPageFinished(QNetworkReply* reply);
-    void onAnalysisFinished(double result);
-    void onAnalysisError(const QString& message);
+    void onSearch();
+    void onDownloadRequested(const SNAPDataset& dataset);
 
 private:
-    void setupUI();
-    void updateList();
-    void loadFromCache();
-    void saveToCache();
-    void fetchTriangleCounts();
-    QString getPath(const GraphInfo& ds);
-    bool isDownloaded(const GraphInfo& ds);
-
-    // UI
-    QListWidget*  list       = nullptr;
-    QLabel*       info       = nullptr;
-    QPushButton*  btn        = nullptr;
-    QPushButton*  refreshBtn = nullptr;
-    QProgressBar* progress   = nullptr;
-
-    // Logic
-    QList<GraphInfo>       datasets;
-    DownloadManager*       dlmgr          = nullptr;
-    QNetworkAccessManager* networkManager = nullptr;
-    QString                dlPath;
-    
-    // Worker
-    QThread*             workerThread = nullptr;
-    GraphAnalyzerWorker* worker       = nullptr;
+    QLineEdit *m_searchBar;
+    QListWidget *m_datasetList;
+    DownloadManager *m_downloadManager;
+    QProgressBar *m_progressBar;
+    QLabel *m_statusLabel;
 };
+
+#endif
