@@ -2,74 +2,102 @@
 #include <fstream>
 #include <sstream>
 #include <algorithm>
-#include <vector>
-#include <map>
+#include <random>
+#include <iostream>
 
-namespace Triangle {
+/**
+ * Loads a SNAP format graph.
+ * Automatically handles tab/space separators and skips comment headers.
+ */
+Graph loadGraph(const std::string& filePath) {
+    Graph graph;
+    std::ifstream infile(filePath);
+    if (!infile.is_open()) return graph;
 
-    // Implementation of graph loading
-    std::map<int, std::vector<int>> loadGraph(const std::string& filename) {
-        std::map<int, std::vector<int>> adj;
-        std::ifstream infile(filename);
-        if (!infile.is_open()) return adj;
+    std::string line;
+    while (std::getline(infile, line)) {
+        if (line.empty() || line[0] == '#' || line[0] == '%') continue;
 
-        std::string line;
-        while (std::getline(infile, line)) {
-            // Skip comments and empty lines
-            if (line.empty() || line[0] == '#' || line[0] == '%') continue;
-
-            std::stringstream ss(line);
-            int u, v;
-            if (ss >> u >> v) {
-                if (u == v) continue; // Skip self-loops
-                adj[u].push_back(v);
-                adj[v].push_back(u);
-            }
+        std::stringstream ss(line);
+        int u, v;
+        if (ss >> u >> v) {
+            if (u == v) continue; // Skip self-loops
+            graph[u].push_back(v);
+            graph[v].push_back(u);
         }
-
-        // Clean up adjacency list: sort and remove duplicates for binary search efficiency
-        for (auto& pair : adj) {
-            std::sort(pair.second.begin(), pair.second.end());
-            pair.second.erase(std::unique(pair.second.begin(), pair.second.end()), pair.second.end());
-        }
-
-        return adj;
     }
 
-    // Implementation of triangle counting
-    GraphAnalysisResult analyzeAndCount(const std::map<int, std::vector<int>>& adj, double delta) {
-        GraphAnalysisResult result = {0, 0, 0};
-        result.numNodes = adj.size();
+    // Optimization: Sort neighbors for fast binary search intersection
+    for (auto& pair : graph) {
+        std::sort(pair.second.begin(), pair.second.end());
+        pair.second.erase(std::unique(pair.second.begin(), pair.second.end()), pair.second.end());
+    }
 
-        long long total_degree = 0;
-        for (const auto& [u, neighbors] : adj) {
-            total_degree += neighbors.size();
+    return graph;
+}
+
+/**
+ * Sublinear Triangle Estimation using Importance Sampling.
+ * Instead of checking every triplet, we sample edges and wedges.
+ */
+GraphAnalysisResult analyzeAndCount(const Graph& graph, double exactAlpha) {
+    GraphAnalysisResult result;
+    result.numVertices = graph.size();
+
+    int64_t totalDegree = 0;
+    std::vector<std::pair<int, int>> edgeList;
+
+    for (const auto& [u, neighbors] : graph) {
+        totalDegree += neighbors.size();
+        for (int v : neighbors) {
+            if (u < v) edgeList.push_back({u, v});
         }
-        result.numEdges = total_degree / 2;
+    }
+    result.numEdges = edgeList.size();
+    result.exactArboricity = exactAlpha;
 
-        long long triangle_count = 0;
+    // --- SUB-LINEAR SAMPLING LOGIC ---
+    // Calculate sample budget K based on Arboricity (alpha)
+    // T_hat = (1/K) * sum(X_i)
+    int64_t k_samples = static_cast<int64_t>(100000 * exactAlpha); // Adaptive budget
+    if (k_samples > edgeList.size()) k_samples = edgeList.size() / 2;
+    if (k_samples < 5000) k_samples = 5000;
 
-        // Iterate through each vertex u
-        for (const auto& [u, neighbors] : adj) {
-            // Check every pair of neighbors (v, w)
-            for (size_t i = 0; i < neighbors.size(); ++i) {
-                for (size_t j = i + 1; j < neighbors.size(); ++j) {
-                    int v = neighbors[i];
-                    int w = neighbors[j];
+    std::mt19937 gen(std::random_device{}());
+    std::uniform_int_distribution<size_t> dis(0, edgeList.size() - 1);
 
-                    // To avoid triple-counting, we only check if u < v < w
-                    if (u < v && v < w) {
-                        const auto& v_neighbors = adj.at(v);
-                        // Binary search for w in v's adjacency list
-                        if (std::binary_search(v_neighbors.begin(), v_neighbors.end(), w)) {
-                            triangle_count++;
-                        }
-                    }
-                }
+    double triangleSum = 0;
+
+    for (int64_t i = 0; i < k_samples; ++i) {
+        // 1. Pick a random edge (u, v)
+        auto edge = edgeList[dis(gen)];
+        int u = edge.first;
+        int v = edge.second;
+
+        // 2. Sample a random neighbor of u or v to form a 'wedge'
+        // This is the core of Importance Sampling
+        const auto& u_adj = graph.at(u);
+        const auto& v_adj = graph.at(v);
+
+        // Count common neighbors (triangles containing edge u,v)
+        int common = 0;
+        // Intersection of two sorted vectors
+        auto it1 = u_adj.begin();
+        auto it2 = v_adj.begin();
+        while (it1 != u_adj.end() && it2 != v_adj.end()) {
+            if (*it1 < *it2) ++it1;
+            else if (*it2 < *it1) ++it2;
+            else {
+                common++;
+                ++it1; ++it2;
             }
         }
-
-        result.numTriangles = triangle_count;
-        return result;
+        triangleSum += common;
     }
+
+    // 3. Final Estimator: T_hat = (TotalEdges / 3) * (triangleSum / k_samples)
+    // We divide by 3 because each triangle is counted by its 3 edges
+    result.triangleCount = static_cast<int64_t>((result.numEdges * triangleSum) / (k_samples * 3.0));
+
+    return result;
 }

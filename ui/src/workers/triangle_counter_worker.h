@@ -3,10 +3,13 @@
 
 #include <QObject>
 #include <QString>
+#include <cstdint>
 
 class TriangleCounterWorker : public QObject {
     Q_OBJECT
+
 public:
+    // Declaration only - matches definition in .cpp
     explicit TriangleCounterWorker(const QString& filePath, QObject* parent = nullptr);
 
 public slots:
@@ -14,9 +17,9 @@ public slots:
 
     signals:
         void progress(const QString& message);
-    void graphDetailsReady(const QString& path, int nodes, int edges, int triangles);
+    void graphDetailsReady(int64_t nodes, int64_t edges, double alpha);
+    void finished(double estimate);
     void error(const QString& message);
-    void finished();
 
 private:
     QString m_filePath;

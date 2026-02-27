@@ -17,7 +17,7 @@
             ],
             "externalConsole": false,
             "visualizerFile": "c:\\Users\\BIU\\AppData\\Roaming\\Code\\User\\workspaceStorage\\b0b4b8c037c723ee4fdbebc289a00ab1\\tonka3000.qtvsctools\\qt.natvis.xml",
-            "preLaunchTask": "CMake: build"
+            "preLaunchTask": "CMake: Build"
         }
     ]
 }

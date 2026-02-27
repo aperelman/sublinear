@@ -2,39 +2,57 @@
 #define EXACT_ARBORICITY_H
 
 #include <vector>
-#include <utility>
 #include <string>
 #include <functional>
+#include <utility>
 
+/**
+ * Result structure returned by the compute function.
+ */
 struct ArboricityOutput {
-    double value;      // The calculated arboricity (gamma)
-    int arboricity;    // Integer result
-    int num_nodes;     // Total nodes in the graph
+    double alpha;
+    int k;
+    int nodes;
 };
 
 class ExactArboricity {
 public:
+    // Required by: ExactArboricity::compute(..., LogFn log)
     using LogFn = std::function<void(const std::string&)>;
 
+    /**
+     * Calculates exact arboricity using Nash-Williams forest cover logic.
+     * Matches the implementation in your ExactArboricity.cpp.
+     */
     static ArboricityOutput compute(
         const std::vector<std::pair<int, int>>& edges,
-        LogFn log = nullptr);
+        LogFn log = nullptr
+    );
 
 private:
+    // Internal edge structure for the MaxFlowSolver
     struct Edge {
-        int to, rev;
+        int to;
+        int rev;
         double cap;
     };
 
+    /**
+     * Inner class implementing the Push-Relabel (Pre-flow push) algorithm.
+     * Matches: ExactArboricity::MaxFlowSolver::MaxFlowSolver(int n)
+     */
     class MaxFlowSolver {
-        int n;
-        std::vector<std::vector<Edge>> adj;
-        std::vector<int> height, count;
-        std::vector<double> excess;
     public:
         MaxFlowSolver(int n);
         void addEdge(int u, int v, double cap);
         double solve(int s, int t);
+
+    private:
+        int n;
+        std::vector<std::vector<Edge>> adj;
+        std::vector<int> height;
+        std::vector<int> count;
+        std::vector<double> excess;
     };
 };
 

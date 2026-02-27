@@ -1,152 +1,156 @@
 #include "mainwindow.h"
-#include "graph_list_widget.h"
+#include "download_manager.h"
+#include "snap_catalog.h" // Ensure this defines 'SnapCatalog'
 #include <QVBoxLayout>
 #include <QHBoxLayout>
-#include <QSplitter>
 #include <QGroupBox>
-#include <QTime>
-#include <QFile>
-#include <QDir>
-#include <QJsonDocument>
-#include <QJsonObject>
-#include <QNetworkReply>
-#include <QRegularExpression>
+#include <QLabel>
+#include <QDateTime>
+#include <QTextEdit>
+#include <QComboBox>
+#include <QProgressBar>
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
-    m_networkManager = new QNetworkAccessManager(this);
     setupManualLayout();
-    loadInitialData();
-    setWindowTitle("GraphAnalyzer Pro 2026");
-    resize(1200, 800);
+}
+
+void MainWindow::onSyncClicked() {
+    appendLog("Syncing SNAP catalog...");
+    m_btnSync->setEnabled(false);
+    m_progressBar->setVisible(true);
+    m_progressBar->setRange(0, 0);
+
+    auto* manager = new DownloadManager(this);
+
+    // Use the lambda carefully to avoid memory access issues
+    connect(manager, &DownloadManager::finished, this, [this, manager](const QString& path) {
+        m_btnSync->setEnabled(true);
+        m_progressBar->setVisible(false);
+
+        if (!path.isEmpty()) {
+            appendLog("Catalog data received. Updating list...");
+            this->loadSnapMetadata(path);
+        } else {
+            appendLog("Sync failed: Check your internet connection.", true);
+        }
+        manager->deleteLater(); // Safe cleanup
+    });
+
+    manager->startDownload("https://snap.stanford.edu/data/index.html");
+}
+
+void MainWindow::loadSnapMetadata(const QString& path) {
+    Q_UNUSED(path); // SNAPCatalog::get() uses hardcoded data in this version
+    m_listSnap->clear();
+
+    // 1. Fixed name to SNAPCatalog (all caps)
+    // 2. Used the static get() method
+    const auto& datasets = SNAPCatalog::get();
+
+    for (const auto& ds : datasets) {
+        // Create item with the dataset name
+        QListWidgetItem* item = new QListWidgetItem(QString::fromStdString(ds.name), m_listSnap);
+
+        // Fix C2660: Pass Role AND Data. Using ds.url from the struct
+        item->setData(Qt::UserRole, QString::fromStdString(ds.url));
+    }
+
+    appendLog(QString("Success: Loaded %1 datasets from SNAP catalog.").arg(datasets.size()));
+}
+
+void MainWindow::onRunClicked() { appendLog("Run clicked..."); }
+void MainWindow::onLocalItemSelected(QListWidgetItem* item) { Q_UNUSED(item); }
+void MainWindow::onSnapItemSelected(QListWidgetItem* item) { Q_UNUSED(item); }
+
+void MainWindow::appendLog(const QString& message, bool isError) {
+    QString time = QDateTime::currentDateTime().toString("hh:mm:ss");
+    m_logArea->append(QString("[%1] %2").arg(time, message));
 }
 
 void MainWindow::setupManualLayout() {
-    QWidget *central = new QWidget(this);
-    setCentralWidget(central);
-    QVBoxLayout *root = new QVBoxLayout(central);
-    QSplitter *splitter = new QSplitter(Qt::Horizontal);
+    auto* centralWidget = new QWidget(this);
+    auto* mainLayout = new QHBoxLayout(centralWidget);
+    mainLayout->setContentsMargins(10, 10, 10, 10);
+    mainLayout->setSpacing(15);
 
-    // Left Section
-    QWidget *left = new QWidget();
-    QVBoxLayout *lLayout = new QVBoxLayout(left);
-    m_tabWidget = new QTabWidget();
-    m_localList = new QListWidget();
-    m_tabWidget->addTab(m_localList, "Local Files");
+    // --- LEFT COLUMN: DATA & INFO (Width: ~35%) ---
+    auto* leftColumn = new QVBoxLayout();
+    
+    m_tabs = new QTabWidget(this);
+    m_tabs->setMinimumWidth(280); 
 
-    QWidget *snapPg = new QWidget();
-    QVBoxLayout *sLay = new QVBoxLayout(snapPg);
-    m_btnRefreshSnap = new QPushButton("Sync SNAP Names");
-    m_graphList = new GraphListWidget();
-    sLay->addWidget(m_btnRefreshSnap);
-    sLay->addWidget(m_graphList);
-    m_tabWidget->addTab(snapPg, "SNAP Web");
-    lLayout->addWidget(m_tabWidget);
+    // Tabs Setup (SNAP and Local)
+    auto* snapTab = new QWidget();
+    auto* snapVBox = new QVBoxLayout(snapTab);
+    m_btnSync = new QPushButton("Sync SNAP Catalog", this);
+    m_listSnap = new QListWidget(this);
+    snapVBox->addWidget(m_btnSync);
+    snapVBox->addWidget(m_listSnap);
+    m_tabs->addTab(snapTab, "SNAP Catalog");
 
-    QGroupBox *box = new QGroupBox("Dataset Properties");
-    QVBoxLayout *bLay = new QVBoxLayout(box);
-    m_lblNodes = new QLabel("Nodes: -");
-    m_lblEdges = new QLabel("Edges: -");
-    m_lblTriangles = new QLabel("Triangles: -");
-    m_btnDownload = new QPushButton("Download Dataset");
-    m_btnDownload->setEnabled(false);
-    bLay->addWidget(m_lblNodes); bLay->addWidget(m_lblEdges); bLay->addWidget(m_lblTriangles);
-    bLay->addWidget(m_btnDownload);
-    lLayout->addWidget(box);
+    auto* localTab = new QWidget();
+    auto* localVBox = new QVBoxLayout(localTab);
+    m_listLocal = new QListWidget(this);
+    localVBox->addWidget(new QLabel("Local Files:"));
+    localVBox->addWidget(m_listLocal);
+    m_tabs->addTab(localTab, "Local");
 
-    // Right Section
-    QWidget *right = new QWidget();
-    QVBoxLayout *rLay = new QVBoxLayout(right);
-    m_algoCombo = new QComboBox();
-    m_algoCombo->addItems({"-- Select Algorithm --", "Exact Arboricity", "Triangle Counting"});
-    m_runBtn = new QPushButton("Run Analysis");
-    m_runBtn->setEnabled(false);
-    rLay->addWidget(new QLabel("Algorithm Selection:"));
-    rLay->addWidget(m_algoCombo);
-    rLay->addStretch();
-    rLay->addWidget(m_runBtn);
+    leftColumn->addWidget(m_tabs); 
 
-    splitter->addWidget(left);
-    splitter->addWidget(right);
-    root->addWidget(splitter, 1);
+    // Metadata Panel
+    auto* metaGroup = new QGroupBox("Graph Selection Info", this);
+    auto* metaLayout = new QVBoxLayout(metaGroup);
+    m_lblNodes = new QLabel("Nodes: --", this);
+    m_lblEdges = new QLabel("Edges: --", this);
+    m_lblResult = new QLabel("Result: --", this);
+    metaLayout->addWidget(m_lblNodes);
+    metaLayout->addWidget(m_lblEdges);
+    metaLayout->addWidget(m_lblResult);
+    leftColumn->addWidget(metaGroup);
 
-    m_logArea = new QTextEdit();
+    // Stretch 5 for the Left Side
+    mainLayout->addLayout(leftColumn, 5); 
+
+    // --- RIGHT COLUMN: CONFIG, RUN & LOGS (Width: ~65%) ---
+    auto* rightColumn = new QVBoxLayout();
+
+    // 1. Algorithm Selection
+    auto* configGroup = new QGroupBox("Configuration", this);
+    auto* configLayout = new QVBoxLayout(configGroup);
+    m_comboAlgo = new QComboBox(this);
+    m_comboAlgo->addItems({"Exact Arboricity", "Triangle Counting"});
+    configLayout->addWidget(new QLabel("Algorithm:"));
+    configLayout->addWidget(m_comboAlgo);
+    rightColumn->addWidget(configGroup);
+
+    // 2. RUN BUTTON (Shortened Height)
+    auto* btnRun = new QPushButton("RUN ANALYSIS", this);
+    btnRun->setMinimumHeight(35); // Decreased from 55/60 to 35
+    btnRun->setMaximumHeight(40); // Ensures it stays compact
+    btnRun->setStyleSheet("font-weight: bold;");
+    rightColumn->addWidget(btnRun);
+
+    // 3. System Logs
+    auto* logGroup = new QGroupBox("System Log", this);
+    auto* logLayout = new QVBoxLayout(logGroup);
+    m_logArea = new QTextEdit(this);
     m_logArea->setReadOnly(true);
-    m_logArea->setStyleSheet("background: #121212; color: #00FF00; font-family: Consolas;");
-    root->addWidget(new QLabel("System Log:"));
-    root->addWidget(m_logArea);
+    m_logArea->setStyleSheet("background-color: #1e1e1e; color: #d4d4d4; font-family: 'Consolas';");
+    logLayout->addWidget(m_logArea);
+    
+    m_progressBar = new QProgressBar(this);
+    m_progressBar->setVisible(false);
+    logLayout->addWidget(m_progressBar);
+    rightColumn->addWidget(logGroup);
 
-    // Connections
-    connect(m_btnRefreshSnap, &QPushButton::clicked, this, &MainWindow::onRefreshSnapRequested);
-    connect(m_btnDownload, &QPushButton::clicked, this, &MainWindow::onDownloadClicked);
-    connect(m_graphList, &GraphListWidget::requestMetadata, this, &MainWindow::onSnapGraphSelected);
-    connect(m_localList, &QListWidget::currentTextChanged, this, &MainWindow::onLocalItemSelected);
-    connect(m_algoCombo, &QComboBox::currentIndexChanged, [this](int i){ m_runBtn->setEnabled(i > 0); });
+    // Stretch 9 for the Right Side
+    mainLayout->addLayout(rightColumn, 9); 
+
+    setCentralWidget(centralWidget);
+
+    // Re-connect signals
+    connect(m_btnSync, &QPushButton::clicked, this, &MainWindow::onSyncClicked);
+    connect(btnRun, &QPushButton::clicked, this, &MainWindow::onRunClicked);
+    connect(m_listLocal, &QListWidget::itemClicked, this, &MainWindow::onLocalItemSelected);
+    connect(m_listSnap, &QListWidget::itemClicked, this, &MainWindow::onSnapItemSelected);
 }
-
-void MainWindow::onSnapGraphSelected(const QString& name, const QString& urlPath) {
-    m_btnDownload->setEnabled(false);
-    QString pathCopy = urlPath;
-    m_currentSnapUrl = "https://snap.stanford.edu/data/" + pathCopy.replace(".html", ".txt.gz");
-
-    appendLog("Fetching metadata for: " + name);
-    QNetworkReply* reply = m_networkManager->get(QNetworkRequest(QUrl("https://snap.stanford.edu/data/" + urlPath)));
-
-    connect(reply, &QNetworkReply::finished, [this, reply]() {
-        if (reply->error() == QNetworkReply::NoError) {
-            parseSubPageMetadata(reply->readAll());
-            m_btnDownload->setEnabled(true);
-        }
-        reply->deleteLater();
-    });
-}
-
-void MainWindow::parseSubPageMetadata(const QString& html) {
-    auto extract = [&](QString key) {
-        QRegularExpression re(key + "</td><td>(\\d+)");
-        QRegularExpressionMatch m = re.match(html);
-        return m.hasMatch() ? m.captured(1) : "N/A";
-    };
-    m_lblNodes->setText("Nodes: " + extract("Nodes"));
-    m_lblEdges->setText("Edges: " + extract("Edges"));
-    m_lblTriangles->setText("Triangles: " + extract("Triangles"));
-}
-
-void MainWindow::onDownloadClicked() {
-    appendLog("Starting Download: " + m_currentSnapUrl);
-    m_btnDownload->setText("Downloading...");
-    m_btnDownload->setEnabled(false);
-
-    QNetworkReply* reply = m_networkManager->get(QNetworkRequest(QUrl(m_currentSnapUrl)));
-    connect(reply, &QNetworkReply::finished, [this, reply]() {
-        if (reply->error() == QNetworkReply::NoError) {
-            QDir().mkdir("data");
-            QString name = m_currentSnapUrl.split('/').last();
-            QFile f("data/" + name);
-            if (f.open(QIODevice::WriteOnly)) {
-                f.write(reply->readAll());
-                f.close();
-                appendLog("Saved successfully: " + name);
-                m_localList->addItem(name);
-            }
-        } else {
-            appendLog("Download Error: " + reply->errorString());
-        }
-        m_btnDownload->setText("Download Dataset");
-        m_btnDownload->setEnabled(true);
-        reply->deleteLater();
-    });
-}
-
-void MainWindow::onRefreshSnapRequested() { m_graphList->fetchNamesOnly(); }
-void MainWindow::onLocalItemSelected(const QString &n) { appendLog("Context switched to: " + n); }
-void MainWindow::onRunClicked() { appendLog("Execution started..."); }
-
-void MainWindow::appendLog(const QString& m) {
-    if (m_logArea) m_logArea->append(QString("[%1] %2").arg(QTime::currentTime().toString()).arg(m));
-}
-
-void MainWindow::loadInitialData() {
-    if (QFile::exists("cache.json")) appendLog("Cache loaded.");
-}
-
-MainWindow::~MainWindow() {}

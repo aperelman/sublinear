@@ -2,56 +2,55 @@
 #define MAINWINDOW_H
 
 #include <QMainWindow>
-#include <QNetworkAccessManager>
-#include <QJsonArray>
-#include <QLabel>
-#include <QTextEdit>
+#include <QTabWidget>
 #include <QListWidget>
 #include <QComboBox>
+#include <QTextEdit>
+#include <QLabel>
 #include <QPushButton>
-#include <QTabWidget>
+#include <QProgressBar>
+#include <QGroupBox>
 
-class GraphListWidget; // Forward declaration
+// Added these so the compiler knows what your 'real implementation' is talking about
+#include "graph_info.h"
+#include "download_manager.h"
+#include "snap_catalog.h"
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
 public:
     explicit MainWindow(QWidget *parent = nullptr);
-    ~MainWindow();
-    void appendLog(const QString& message);
+    ~MainWindow() = default;
 
 private slots:
-    void onRefreshSnapRequested();
-    void onDownloadClicked();
     void onRunClicked();
-    void onSnapGraphSelected(const QString& name, const QString& urlPath);
-    void onLocalItemSelected(const QString &name);
+    void onSyncClicked();
+    void onLocalItemSelected(QListWidgetItem* item);
+    void onSnapItemSelected(QListWidgetItem* item);
 
 private:
     void setupManualLayout();
-    void loadInitialData();
-    void parseSubPageMetadata(const QString& html);
+    void appendLog(const QString& message, bool isError = false);
 
-    // UI Elements
-    QTabWidget *m_tabWidget;
-    QListWidget *m_localList;
-    GraphListWidget *m_graphList;
+    // REQUIRED: You added this in the .cpp, so it MUST be here too
+    void loadSnapMetadata(const QString& path);
 
-    QLabel *m_lblNodes;
-    QLabel *m_lblEdges;
-    QLabel *m_lblTriangles;
+    // UI Components matching your stable layout
+    QTabWidget* m_tabs = nullptr;
+    QListWidget* m_listLocal = nullptr;
+    QListWidget* m_listSnap = nullptr;
+    QComboBox* m_comboAlgo = nullptr;
+    QTextEdit* m_logArea = nullptr;
 
-    QPushButton *m_btnRefreshSnap;
-    QPushButton *m_btnDownload;
-    QPushButton *m_runBtn;
-    QComboBox *m_algoCombo;
-    QTextEdit *m_logArea;
+    QLabel* m_lblNodes = nullptr;
+    QLabel* m_lblEdges = nullptr;
+    QLabel* m_lblResult = nullptr;
+    QLabel* m_lblStatus = nullptr;
+    QPushButton* m_btnSync = nullptr;
+    QProgressBar* m_progressBar = nullptr;
 
-    // Data & Network
-    QJsonArray m_cachedDatasets;
-    QNetworkAccessManager *m_networkManager;
-    QString m_currentSnapUrl;
+    QString m_selectedFilePath;
 };
 
 #endif

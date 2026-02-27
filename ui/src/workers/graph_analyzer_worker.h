@@ -14,7 +14,7 @@ public slots:
 
     signals:
         void progress(const QString& message);
-    void graphDetailsReady(const QString& path, int nodes, int edges, double density);
+    void arboricityResult(double arboricity, int nodes, int edges);
     void error(const QString& message);
     void finished();
 

@@ -1,36 +1,35 @@
-#pragma once
+#ifndef DOWNLOAD_MANAGER_H
+#define DOWNLOAD_MANAGER_H
 
 #include <QObject>
+#include <QString>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
-#include <QString>
-#include <QFile>
 
 class DownloadManager : public QObject {
     Q_OBJECT
-
 public:
-    explicit DownloadManager(QObject* parent = nullptr);
+    explicit DownloadManager(QObject *parent = nullptr);
 
-    void downloadFile(const QString& url, const QString& destinationPath);
-    void cancel();
+    // Updated to accept optional destination path to match snap_browser_widget.cpp
+    void startDownload(const QString& url, const QString& destinationPath = "");
 
-signals:
+    // Alias for snap_browser_widget.cpp
+    void downloadFile(const QString& url, const QString& destinationPath = "") {
+        startDownload(url, destinationPath);
+    }
+
+    signals:
+        void finished(const QString& localPath);
+    void downloadFinished(const QString& localPath);
+    void downloadError(const QString& error);
     void downloadProgress(qint64 bytesReceived, qint64 bytesTotal);
-    void downloadFinished(const QString& filePath);
-    void downloadError(const QString& errorMessage);
 
 private slots:
-    void onReadyRead();
-    void onDownloadProgress(qint64 bytesReceived, qint64 bytesTotal);
-    void onDownloadFinished();
-    void onDownloadError(QNetworkReply::NetworkError error);
+    void onDownloadFinished(QNetworkReply* reply, const QString& destinationPath);
 
 private:
-    bool decompressGzip(const QString& gzipPath, const QString& outputPath);
-
-    QNetworkAccessManager* networkManager;
-    QNetworkReply*         currentReply;
-    QFile*                 outputFile;
-    QString                destinationPath;
+    QNetworkAccessManager* m_manager;
 };
+
+#endif

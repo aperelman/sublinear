@@ -6,11 +6,14 @@
             "type": "shell",
             "command": "cmake",
             "args": [
+                "-G",
+                "Visual Studio 17 2022",
+                "-A",
+                "x64",
                 "-S",
                 "${workspaceFolder}/ui",
                 "-B",
-                "${workspaceFolder}/ui/build",
-                "-DCMAKE_BUILD_TYPE=Debug"
+                "${workspaceFolder}/ui/build"
             ],
             "group": {
                 "kind": "build",
@@ -19,31 +22,32 @@
             "problemMatcher": []
         },
         {
-            "label": "CMake: Build",
+            "label": "CMake: build",
             "type": "shell",
             "command": "cmake",
             "args": [
                 "--build",
                 "${workspaceFolder}/ui/build",
-                "-j",
-                "4"
+                "--config",
+                "Debug"
             ],
             "group": {
                 "kind": "build",
                 "isDefault": true
             },
             "problemMatcher": [
-                "$gcc"
-            ],
-            "dependsOn": ["CMake: Configure"]
+                "$msCompile"
+            ]
         },
         {
             "label": "CMake: Clean",
             "type": "shell",
-            "command": "rm",
+            "command": "cmake",
             "args": [
-                "-rf",
-                "${workspaceFolder}/ui/build"
+                "--build",
+                "${workspaceFolder}/ui/build",
+                "--target",
+                "clean"
             ],
             "group": "build",
             "problemMatcher": []
@@ -52,7 +56,7 @@
             "label": "CMake: Rebuild",
             "dependsOn": [
                 "CMake: Clean",
-                "CMake: Build"
+                "CMake: build"
             ],
             "group": "build",
             "problemMatcher": []
