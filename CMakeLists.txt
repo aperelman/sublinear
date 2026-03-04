@@ -1,96 +1,136 @@
 cmake_minimum_required(VERSION 3.16)
 project(GraphAnalyzer VERSION 1.0.0)
 
-# 1. Paths
-# Ensure these match your local environment
-set(VCPKG_INSTALL_PATH "C:/vcpkg/installed/x64-windows")
-list(APPEND CMAKE_PREFIX_PATH ${VCPKG_INSTALL_PATH})
-set(CMAKE_PREFIX_PATH "C:/Qt/6.8.3/msvc2022_64" ${CMAKE_PREFIX_PATH})
-
-# 2. C++ settings
-set(CMAKE_CXX_STANDARD 23)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-if(MSVC)
-    # Using /std:c++latest for full C++23/26 support and UTF-8 handling
-    add_compile_options(/EHsc /utf-8 /W3 /std:c++latest /Zc:__cplusplus)
+# ------------------------------------------------------------------
+# Cross‑platform Qt path (Windows only)
+# ------------------------------------------------------------------
+if(WIN32 AND NOT CMAKE_PREFIX_PATH)
+    set(CMAKE_PREFIX_PATH "C:/Qt/6.8.3/msvc2022_64" CACHE PATH "Qt installation prefix")
 endif()
 
-# 3. Qt automation
+# ------------------------------------------------------------------
+# C++ standard & Qt auto tools
+# ------------------------------------------------------------------
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
-set(CMAKE_AUTOUIC OFF)  # UI is implemented in C++, no .ui files
+set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
-# 4. Find packages
-find_package(Qt6 REQUIRED COMPONENTS Core Widgets Network)
-find_package(ZLIB REQUIRED)
+# ------------------------------------------------------------------
+# Find Qt6
+# ------------------------------------------------------------------
+find_package(Qt6 REQUIRED COMPONENTS Widgets Network)
 
-# 5. Algorithm directories
-get_filename_component(PARENT_DIR "${CMAKE_CURRENT_SOURCE_DIR}" DIRECTORY)
-set(ALGO_BASE_DIR "${PARENT_DIR}/algorithms")
-set(ARBORICITY_DIR "${ALGO_BASE_DIR}/exact_arboricity")
-set(TRIANGLE_DIR   "${ALGO_BASE_DIR}/triangle_counting")
+# ------------------------------------------------------------------
+# Download SNAP source using FetchContent
+# ------------------------------------------------------------------
+include(FetchContent)
+FetchContent_Declare(
+  snap_src
+  GIT_REPOSITORY https://github.com/snap-stanford/snap.git
+  GIT_TAG        master
+)
+FetchContent_MakeAvailable(snap_src)
 
-# 6. Sources and Headers
+# After this, the source is at ${snap_src_SOURCE_DIR}
+set(SNAP_CORE_DIR ${snap_src_SOURCE_DIR}/snap-core)
+set(SNAP_BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/snap_build)
+set(SNAP_LIBRARY   ${SNAP_BUILD_DIR}/libsnap-core.a)
+
+# ------------------------------------------------------------------
+# Suppress warnings from the SNAP library (they are harmless)
+# ------------------------------------------------------------------
+set(SNAP_WARNING_FLAGS
+    -Wno-misleading-indentation
+    -Wno-template-id-cdtor
+    -Wno-unused-but-set-variable
+    -Wno-catch-value
+    -Wno-free-nonheap-object
+    -Wno-alloc-size-larger-than
+    -Wno-class-memaccess
+    -Wno-maybe-uninitialized
+    -Wno-parentheses
+    -Wno-delete-non-virtual-dtor
+    -Wno-mismatched-new-delete
+    -Wno-nonnull
+    -Wno-format-overflow
+)
+
+# Convert the list to a single string (space separated)
+string(JOIN " " SNAP_WARNING_FLAGS_STR ${SNAP_WARNING_FLAGS})
+
+# ------------------------------------------------------------------
+# Build the SNAP core library (with warnings suppressed)
+# ------------------------------------------------------------------
+add_custom_target(build_snap ALL
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${SNAP_BUILD_DIR}
+    COMMAND ${CMAKE_COMMAND} -E echo "Building SNAP core in ${SNAP_CORE_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E env "CXXFLAGS=${SNAP_WARNING_FLAGS_STR}" make -C ${SNAP_CORE_DIR}
+    COMMAND ar rcs ${SNAP_CORE_DIR}/libsnap-core.a ${SNAP_CORE_DIR}/Snap.o
+    COMMAND ${CMAKE_COMMAND} -E copy ${SNAP_CORE_DIR}/libsnap-core.a ${SNAP_LIBRARY}
+    COMMENT "Building SNAP core library"
+    BYPRODUCTS ${SNAP_LIBRARY}
+    WORKING_DIRECTORY ${SNAP_CORE_DIR}
+)
+
+# Import the built library as a CMake target (only location needed)
+add_library(snap STATIC IMPORTED)
+set_target_properties(snap PROPERTIES
+    IMPORTED_LOCATION ${SNAP_LIBRARY}
+)
+
+# ------------------------------------------------------------------
+# Source files (from ui/src)
+# ------------------------------------------------------------------
 set(SOURCES
-        src/main.cpp
-        src/mainwindow.cpp
-        src/graph_list_widget.cpp
-        src/graph_loader.cpp
-        src/download_manager.cpp
-        src/snap_dataset_cache.cpp
-        src/snap_browser_widget.cpp
-        src/workers/graph_analyzer_worker.cpp
-        src/workers/triangle_counter_worker.cpp
-        "${ARBORICITY_DIR}/density_algorithm.cpp"
-        "${ARBORICITY_DIR}/ExactArboricity.cpp"
-        "${TRIANGLE_DIR}/TriangleCounting.cpp"
+    ui/src/main.cpp
+    ui/src/mainwindow.cpp
+    ui/src/graph_list_widget.cpp
+    ui/src/algorithm_runner.cpp
+    ui/src/download_manager.cpp
+    ui/src/snap_dataset_cache.cpp
+    ui/src/snap_browser_widget.cpp
 )
 
 set(HEADERS
-        src/mainwindow.h
-        src/graph_list_widget.h
-        src/graph_loader.h
-        src/graph_info.h
-        src/snap_catalog.h
-        src/download_manager.h
-        src/snap_dataset_cache.h
-        src/snap_browser_widget.h
-        src/workers/graph_analyzer_worker.h
-        src/workers/triangle_counter_worker.h
-        "${ARBORICITY_DIR}/density_algorithm.h"
-        "${ARBORICITY_DIR}/ExactArboricity.h"
-        "${TRIANGLE_DIR}/TriangleCounting.h"
+    ui/src/mainwindow.h
+    ui/src/graph_list_widget.h
+    ui/src/algorithm_runner.h
+    ui/src/graph_info.h
+    ui/src/snap_catalog.h
+    ui/src/download_manager.h
+    ui/src/snap_dataset_cache.h
+    ui/src/snap_browser_widget.h
 )
 
-# 7. Executable
+# ------------------------------------------------------------------
+# Executable
+# ------------------------------------------------------------------
 add_executable(GraphAnalyzer ${SOURCES} ${HEADERS})
 
-# 8. Properties for Qt signals/slots
-# This allows the Meta-Object Compiler to process your worker threads
-set_source_files_properties(
-        src/workers/graph_analyzer_worker.cpp
-        src/workers/triangle_counter_worker.cpp
-        src/snap_browser_widget.cpp
-        PROPERTIES SKIP_AUTOMOC OFF
-)
+# Ensure the executable depends on the built SNAP library
+add_dependencies(GraphAnalyzer build_snap)
 
-# 9. Include directories
-target_include_directories(GraphAnalyzer PRIVATE
-        "${CMAKE_CURRENT_SOURCE_DIR}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/src"
-        "${PARENT_DIR}"
-        "${ARBORICITY_DIR}"
-        "${TRIANGLE_DIR}"
-)
-
-# 10. Link libraries
+# ------------------------------------------------------------------
+# Link libraries – now using our imported SNAP target
+# ------------------------------------------------------------------
 target_link_libraries(GraphAnalyzer PRIVATE
-        Qt6::Core
-        Qt6::Widgets
-        Qt6::Network
-        ZLIB::ZLIB
+    Qt6::Widgets
+    Qt6::Network
+    snap
 )
 
-# 11. Installation
+# ------------------------------------------------------------------
+# Include directories
+# ------------------------------------------------------------------
+target_include_directories(GraphAnalyzer PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/ui/src
+    ${snap_src_SOURCE_DIR}       # for Snap.h
+    ${SNAP_CORE_DIR}              # for Snap.h (if needed)
+)
+
+# ------------------------------------------------------------------
+# Optional install
+# ------------------------------------------------------------------
 install(TARGETS GraphAnalyzer RUNTIME DESTINATION bin)
