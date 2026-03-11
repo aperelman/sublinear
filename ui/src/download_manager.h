@@ -1,36 +1,35 @@
-#pragma once
+#ifndef DOWNLOAD_MANAGER_H
+#define DOWNLOAD_MANAGER_H
 
 #include <QObject>
-#include <QNetworkAccessManager>
-#include <QNetworkReply>
-#include <QString>
+#include <QUrl>
 #include <QFile>
+#include <QNetworkAccessManager>
 
 class DownloadManager : public QObject {
     Q_OBJECT
-
 public:
-    explicit DownloadManager(QObject* parent = nullptr);
+    explicit DownloadManager(QObject *parent = nullptr);
 
-    void downloadFile(const QString& url, const QString& destinationPath);
-    void cancel();
+    // Dataset download (.txt.gz)
+    void startDownload(const QUrl &url, const QString &savePath);
 
-signals:
-    void downloadProgress(qint64 bytesReceived, qint64 bytesTotal);
-    void downloadFinished(const QString& filePath);
-    void downloadError(const QString& errorMessage);
+    // SNAP index catalog download (.html)
+    void startCatalogDownload(const QUrl &url, const QString &savePath);
+
+    signals:
+        void progress(int percentage);
+    void finished(const QString &filePath);
+    void error(const QString &message);
+
+    // Emits true on successful save, false if download or write fails
+    void catalogDownloaded(bool success);
 
 private slots:
-    void onReadyRead();
-    void onDownloadProgress(qint64 bytesReceived, qint64 bytesTotal);
-    void onDownloadFinished();
-    void onDownloadError(QNetworkReply::NetworkError error);
+    void onFinished(QNetworkReply *reply);
 
 private:
-    bool decompressGzip(const QString& gzipPath, const QString& outputPath);
-
-    QNetworkAccessManager* networkManager;
-    QNetworkReply*         currentReply;
-    QFile*                 outputFile;
-    QString                destinationPath;
+    QNetworkAccessManager *manager;
 };
+
+#endif

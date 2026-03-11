@@ -136,6 +136,8 @@ set(SOURCES
     ui/src/graph_list_widget.cpp
     ui/src/algorithm_runner.cpp
     ui/src/download_manager.cpp
+    ui/src/local_files_widget.cpp
+    ui/src/local_files_widget.h
     ui/src/snap_dataset_cache.cpp
     ui/src/snap_browser_widget.cpp
 )

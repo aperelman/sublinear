@@ -2,56 +2,43 @@
 #define MAINWINDOW_H
 
 #include <QMainWindow>
-#include <QNetworkAccessManager>
-#include <QJsonArray>
 #include <QLabel>
-#include <QTextEdit>
-#include <QListWidget>
 #include <QComboBox>
 #include <QPushButton>
+#include <QTextEdit>
 #include <QTabWidget>
+#include "download_manager.h" // Include full definition for the owned manager
 
-class GraphListWidget; // Forward declaration
+class SnapBrowserWidget;
+class LocalFilesWidget; // Ensure this class is defined in your project
+
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
 public:
     explicit MainWindow(QWidget *parent = nullptr);
-    ~MainWindow();
-    void appendLog(const QString& message);
+    ~MainWindow() = default;
 
-private slots:
-    void onRefreshSnapRequested();
-    void onDownloadClicked();
-    void onRunClicked();
-    void onSnapGraphSelected(const QString& name, const QString& urlPath);
-    void onLocalItemSelected(const QString &name);
+public slots:
+    void logMessage(const QString &msg);
+    void updateProperties(const QString &name, int64_t nodes, int64_t edges, int64_t triangles);
+    void handleRunClicked();
 
 private:
-    void setupManualLayout();
-    void loadInitialData();
-    void parseSubPageMetadata(const QString& html);
+    QTabWidget *tabWidget;
+    SnapBrowserWidget *snapBrowser;
+    LocalFilesWidget *localFilesTab;
+    DownloadManager *downloadManager;
 
-    // UI Elements
-    QTabWidget *m_tabWidget;
-    QListWidget *m_localList;
-    GraphListWidget *m_graphList;
+    QLabel *label_nodes;
+    QLabel *label_edges;
+    QLabel *label_triangles;
+    QComboBox *algoSelection;
+    QPushButton *btn_run;
+    QTextEdit *messagePanel;
 
-    QLabel *m_lblNodes;
-    QLabel *m_lblEdges;
-    QLabel *m_lblTriangles;
-
-    QPushButton *m_btnRefreshSnap;
-    QPushButton *m_btnDownload;
-    QPushButton *m_runBtn;
-    QComboBox *m_algoCombo;
-    QTextEdit *m_logArea;
-
-    // Data & Network
-    QJsonArray m_cachedDatasets;
-    QNetworkAccessManager *m_networkManager;
-    QString m_currentSnapUrl;
+    QString m_currentSnapName;
 };
 
 #endif

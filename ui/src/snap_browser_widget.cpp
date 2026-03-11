@@ -1,99 +1,113 @@
 #include "snap_browser_widget.h"
-#include "snap_catalog.h"
 #include <QVBoxLayout>
-#include <QHBoxLayout>
-#include <QCoreApplication>
-#include <QFileInfo>
-#include <QListWidgetItem>
+#include <QHeaderView>
+#include <QFile>
+#include <QRegularExpression>
 
-SNAPBrowserWidget::SNAPBrowserWidget(QWidget *parent)
-    : QWidget(parent), m_downloadManager(new DownloadManager(this)) {
+SnapBrowserWidget::SnapBrowserWidget(DownloadManager *mgr, QWidget *parent)
+    : QWidget(parent), downloadManager(mgr) {
+
     QVBoxLayout *layout = new QVBoxLayout(this);
 
-    // שורת חיפוש
-    m_searchBar = new QLineEdit();
-    m_searchBar->setPlaceholderText("Search SNAP datasets...");
-    QPushButton *searchBtn = new QPushButton("Search");
+    // Model with only one visible column
+    datasetModel = new QStandardItemModel(this);
+    datasetModel->setHorizontalHeaderLabels({"Dataset Name"});
 
-    QHBoxLayout *searchLayout = new QHBoxLayout();
-    searchLayout->addWidget(m_searchBar);
-    searchLayout->addWidget(searchBtn);
-    layout->addLayout(searchLayout);
+    datasetView = new QTreeView(this);
+    datasetView->setModel(datasetModel);
 
-    // רשימת דאטהסטים
-    m_datasetList = new QListWidget();
-    layout->addWidget(m_datasetList);
+    // Make the TreeView look like a simple list
+    datasetView->setRootIsDecorated(false);      // No expand/collapse arrows
+    datasetView->setIndentation(0);               // No left-side padding
+    datasetView->header()->setVisible(false);     // Hide the "Dataset Name" header
+    datasetView->setSelectionBehavior(QAbstractItemView::SelectRows);
+    datasetView->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    datasetView->setAlternatingRowColors(true);
 
-    // סטטוס ופס התקדמות
-    m_statusLabel = new QLabel("Ready");
-    m_progressBar = new QProgressBar();
-    m_progressBar->setVisible(false);
-    m_progressBar->setRange(0, 100);
+    datasetView->header()->setSectionResizeMode(QHeaderView::Stretch);
+    layout->addWidget(datasetView, 1);
 
-    layout->addWidget(m_statusLabel);
-    layout->addWidget(m_progressBar);
+    refreshButton = new QPushButton("Refresh SNAP Index", this);
+    layout->addWidget(refreshButton);
 
-    // חיבור כפתור חיפוש
-    connect(searchBtn, &QPushButton::clicked, this, &SNAPBrowserWidget::onSearch);
-    connect(m_searchBar, &QLineEdit::returnPressed, this, &SNAPBrowserWidget::onSearch);
+    // Connections
+    connect(refreshButton, &QPushButton::clicked, this, &SnapBrowserWidget::onRefreshClicked);
+    connect(datasetView, &QTreeView::doubleClicked, this, &SnapBrowserWidget::onDoubleClicked);
+    connect(datasetView->selectionModel(), &QItemSelectionModel::selectionChanged,
+            this, &SnapBrowserWidget::handleSelectionChanged);
 
-    // חיבור לחיצה כפולה להורדה
-    connect(m_datasetList, &QListWidget::itemDoubleClicked, [this](QListWidgetItem* item){
-        for(const auto& ds : SNAPCatalog::get()) {
-            if(QString::fromStdString(ds.name) == item->text()) {
-                onDownloadRequested(ds);
-                break;
-            }
-        }
-    });
-
-    // טעינה ראשונית של הרשימה
-    onSearch();
+    connect(downloadManager, &DownloadManager::catalogDownloaded,
+            this, &SnapBrowserWidget::handleCatalogReady);
 }
 
-void SNAPBrowserWidget::onSearch() {
-    m_datasetList->clear();
-    QString filter = m_searchBar->text();
-    for(const auto& ds : SNAPCatalog::get()) {
-        QString name = QString::fromStdString(ds.name);
-        if(filter.isEmpty() || name.contains(filter, Qt::CaseInsensitive)) {
-            m_datasetList->addItem(name);
+void SnapBrowserWidget::onRefreshClicked() {
+    refreshButton->setEnabled(false);
+    emit logMessage("Fetching latest SNAP index...");
+    downloadManager->startCatalogDownload(
+        QUrl("https://snap.stanford.edu/data/index.html"),
+        "C:/BIU/data/snap_index.html"
+    );
+}
+
+void SnapBrowserWidget::handleCatalogReady(bool success) {
+    refreshButton->setEnabled(true);
+    if (success) {
+        QFile file("C:/BIU/data/snap_index.html");
+        if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            QString content = file.readAll();
+            file.close();
+            parseSnapHtml(content);
         }
+    } else {
+        emit logMessage("Network error. Could not reach SNAP servers.");
     }
 }
 
-void SNAPBrowserWidget::onDownloadRequested(const SNAPDataset& dataset) {
-    m_statusLabel->setText("Downloading and decompressing...");
-    m_progressBar->setVisible(true);
-    m_progressBar->setValue(0);
+void SnapBrowserWidget::parseSnapHtml(const QString &html) {
+    datasetModel->removeRows(0, datasetModel->rowCount());
 
-    // קביעת נתיב יעד בתיקיית האפליקציה
-    QString fileName = QString::fromStdString(dataset.name).replace(" ", "_") + ".txt";
-    QString destPath = QCoreApplication::applicationDirPath() + "/" + fileName;
+    // Regex to capture Name, Nodes, and Edges
+    QRegularExpression re("<tr.*?>\\s*<td.*?>\\s*<a href=\".*?\">(.*?)</a>\\s*</td>\\s*<td.*?>(.*?)</td>\\s*<td.*?>(.*?)</td>");
+    re.setPatternOptions(QRegularExpression::DotMatchesEverythingOption);
 
-    // ניתוק חיבורים קודמים כדי למנוע כפילויות במידה והורדנו קובץ קודם לכן
-    disconnect(m_downloadManager, &DownloadManager::downloadFinished, nullptr, nullptr);
-    disconnect(m_downloadManager, &DownloadManager::downloadError, nullptr, nullptr);
-    disconnect(m_downloadManager, &DownloadManager::downloadProgress, nullptr, nullptr);
+    QRegularExpressionMatchIterator i = re.globalMatch(html);
 
-    // חיבור לסיגנלים לפי download_manager.h
-    connect(m_downloadManager, &DownloadManager::downloadFinished, this, [this](const QString& filePath){
-        m_progressBar->setVisible(false);
-        m_statusLabel->setText("Ready: " + QFileInfo(filePath).fileName());
-        emit datasetReady(filePath);
-    });
+    while (i.hasNext()) {
+        QRegularExpressionMatch match = i.next();
+        QString name = match.captured(1).trimmed();
+        QString nodes = match.captured(2).trimmed().replace(",", "");
+        QString edges = match.captured(3).trimmed().replace(",", "");
 
-    connect(m_downloadManager, &DownloadManager::downloadError, this, [this](const QString& error){
-        m_progressBar->setVisible(false);
-        m_statusLabel->setText("Error: " + error);
-    });
+        if (!name.isEmpty()) {
+            QStandardItem* nameItem = new QStandardItem(name);
 
-    connect(m_downloadManager, &DownloadManager::downloadProgress, this, [this](qint64 received, qint64 total){
-        if (total > 0) {
-            m_progressBar->setValue(static_cast<int>((received * 100) / total));
+            // Hide technical data in UserRoles so they don't show up in the list
+            nameItem->setData(nodes, Qt::UserRole + 1);
+            nameItem->setData(edges, Qt::UserRole + 2);
+
+            datasetModel->appendRow(nameItem);
         }
-    });
+    }
+    emit logMessage("Index synchronized.");
+}
 
-    // הפעלת ההורדה עם השמות הנכונים מה-Header
-    m_downloadManager->downloadFile(QString::fromStdString(dataset.url), destPath);
+void SnapBrowserWidget::onDoubleClicked(const QModelIndex &index) {
+    if (!index.isValid()) return;
+    QString name = datasetModel->item(index.row(), 0)->text();
+    emit downloadRequested(name, QUrl("https://snap.stanford.edu/data/" + name + ".txt.gz"));
+}
+
+void SnapBrowserWidget::handleSelectionChanged(const QItemSelection &selected, const QItemSelection &) {
+    if (selected.indexes().isEmpty()) return;
+
+    QModelIndex index = selected.indexes().first();
+    QStandardItem* item = datasetModel->itemFromIndex(index);
+
+    // Broadcast the hidden data to the main window labels
+    emit datasetMetadataLoaded(
+        item->text(),
+        item->data(Qt::UserRole + 1).toLongLong(),
+        item->data(Qt::UserRole + 2).toLongLong(),
+        0
+    );
 }

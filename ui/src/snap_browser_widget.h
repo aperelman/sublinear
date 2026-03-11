@@ -2,35 +2,37 @@
 #define SNAP_BROWSER_WIDGET_H
 
 #include <QWidget>
-#include <QLineEdit>
+#include <QTreeView>
 #include <QPushButton>
-#include <QListWidget>
-#include <QLabel>
-#include <QProgressBar>
-#include "snap_catalog.h" // חייב להיות כאן עבור SNAPDataset
-#include "download_manager.h"
+#include <QStandardItemModel>
+#include <QItemSelection>
+#include <QUrl>
+#include "download_manager.h" // Required to recognize the manager type
 
-class SNAPBrowserWidget : public QWidget {
+class SnapBrowserWidget : public QWidget {
     Q_OBJECT
 public:
-    explicit SNAPBrowserWidget(QWidget *parent = nullptr);
+    // Constructor now takes the shared DownloadManager
+    explicit SnapBrowserWidget(DownloadManager *mgr, QWidget *parent = nullptr);
 
     signals:
-        // עכשיו ה-Compiler מכיר את SNAPDataset
-        void datasetSelected(const SNAPDataset& dataset);
-    void datasetReady(const QString& filePath);
-    void analysisProgress(const QString& message);
+        void datasetMetadataLoaded(const QString &name, int64_t nodes, int64_t edges, int64_t triangles);
+    void logMessage(const QString &message);
+    void downloadRequested(const QString &name, const QUrl &url);
 
 private slots:
-    void onSearch();
-    void onDownloadRequested(const SNAPDataset& dataset);
+    void onRefreshClicked();
+    void handleCatalogReady(bool success); // Slot to consume catalogDownloaded(bool)
+    void handleSelectionChanged(const QItemSelection &selected, const QItemSelection &deselected);
+    void onDoubleClicked(const QModelIndex &index);
 
 private:
-    QLineEdit *m_searchBar;
-    QListWidget *m_datasetList;
-    DownloadManager *m_downloadManager;
-    QProgressBar *m_progressBar;
-    QLabel *m_statusLabel;
+    void parseSnapHtml(const QString &html);
+
+    QTreeView *datasetView;
+    QStandardItemModel *datasetModel;
+    QPushButton *refreshButton;
+    DownloadManager *downloadManager; // Reference to the central manager
 };
 
 #endif
