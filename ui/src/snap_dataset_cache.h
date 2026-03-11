@@ -1,31 +1,37 @@
 #ifndef SNAP_DATASET_CACHE_H
 #define SNAP_DATASET_CACHE_H
 
-#include <QList>
+#include <QObject>
+#include <QMap>
 #include <QString>
-#include <QJsonDocument>
-#include <QJsonArray>
-#include <QDateTime>
+#include <cstdint>
 
-struct GraphInfo;
-class SnapDatasetCache {
+struct DatasetStats {
+    int64_t nodes = 0;
+    int64_t edges = 0;
+    int64_t triangles = 0;
+    QString type;
+    bool isValid = false;
+};
+
+class SnapDatasetCache : public QObject
+{
+    Q_OBJECT
+
 public:
-    [[nodiscard]] static bool saveToCache(const QList<GraphInfo>& datasets);
-    static QList<GraphInfo> loadFromCache();
-    static bool cacheExists();
-    static QDateTime getCacheTimestamp();
+    explicit SnapDatasetCache(QObject *parent = nullptr);
+    
+    void addDataset(const QString &name, const DatasetStats &stats);
+    DatasetStats getDataset(const QString &name) const;
+    bool hasDataset(const QString &name) const;
+    QStringList getAllDatasetNames() const;
+    
+signals:
+    void datasetSelected(const QString &name, const DatasetStats &stats);
+    void analysisRequested(const QString &name);
 
 private:
-    // Helper for saving: Renamed to avoid return-type conflict with a 'toJson' style name
-    static QJsonDocument datasetsToDocument(const QList<GraphInfo>& datasets);
-    static QJsonArray datasetsToSnapshot(const QList<GraphInfo>& datasets);
-    
-    // Overloaded Helpers for loading: Allows passing either Document or Array
-    static QList<GraphInfo> jsonToDatasets(const QJsonDocument& doc);
-    static QList<GraphInfo> jsonToDatasets(const QJsonArray& array);
-
-    static QList<GraphInfo> loadBuiltInSnapshot();
-    static QString getCachePath();
+    QMap<QString, DatasetStats> m_cache;
 };
 
 #endif // SNAP_DATASET_CACHE_H
