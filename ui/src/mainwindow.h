@@ -2,43 +2,49 @@
 #define MAINWINDOW_H
 
 #include <QMainWindow>
-#include <QLabel>
-#include <QComboBox>
+#include <QLineEdit>
 #include <QPushButton>
-#include <QTextEdit>
-#include <QTabWidget>
-#include "download_manager.h" // Include full definition for the owned manager
-
-class SnapBrowserWidget;
-class LocalFilesWidget; // Ensure this class is defined in your project
-
+#include <QComboBox>
+#include <QPlainTextEdit>
+#include <QLabel>
+#include <QUrl>
+#include <memory>
+#include "algorithm_runner.h"
+#include "snap_browser_widget.h"
+#include "download_manager.h"
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
 public:
     explicit MainWindow(QWidget *parent = nullptr);
-    ~MainWindow() = default;
+    ~MainWindow();
 
-public slots:
-    void logMessage(const QString &msg);
-    void updateProperties(const QString &name, int64_t nodes, int64_t edges, int64_t triangles);
+private Q_SLOTS:
     void handleRunClicked();
+    void updateProperties(const QString& name, int64_t nodes, int64_t edges, int64_t triangles);
 
 private:
-    QTabWidget *tabWidget;
-    SnapBrowserWidget *snapBrowser;
-    LocalFilesWidget *localFilesTab;
-    DownloadManager *downloadManager;
+    void runAlgorithmOnFile(const QString &filePath);
+    QString localPathForDataset(const QString &name) const;
+    static bool decompressGz(const QString &gzPath, const QString &outPath);
 
-    QLabel *label_nodes;
-    QLabel *label_edges;
-    QLabel *label_triangles;
-    QComboBox *algoSelection;
-    QPushButton *btn_run;
-    QTextEdit *messagePanel;
+    QLineEdit       *m_editFilePath;
+    QComboBox       *m_algoSelection;
+    QPushButton     *m_btnRun;
+    QLabel          *m_labelNodes;
+    QLabel          *m_labelEdges;
+    QLabel          *m_labelTriangles;
+    QPlainTextEdit  *m_textLog;
 
-    QString m_currentSnapName;
+    // SNAP dataset selection state
+    QString m_pendingSnapName;
+    QUrl    m_pendingSnapUrl;
+
+    // Custom Components
+    SnapBrowserWidget                *m_snapBrowser;
+    std::unique_ptr<DownloadManager>  m_downloadManager;
+    std::unique_ptr<AlgorithmRunner>  m_runner;
 };
 
 #endif

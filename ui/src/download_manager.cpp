@@ -13,6 +13,8 @@ void DownloadManager::startDownload(const QUrl &url, const QString &savePath) {
     QNetworkReply *reply = manager->get(request);
     reply->setProperty("savePath", savePath);
     reply->setProperty("isCatalog", false);
+
+    // Modern syntax compatible with AUTOMOC
     connect(reply, &QNetworkReply::finished, this, [this, reply]() { this->onFinished(reply); });
 }
 
@@ -20,7 +22,8 @@ void DownloadManager::startCatalogDownload(const QUrl &url, const QString &saveP
     QNetworkRequest request(url);
     QNetworkReply *reply = manager->get(request);
     reply->setProperty("savePath", savePath);
-    reply->setProperty("isCatalog", true); // Flag to identify list updates
+    reply->setProperty("isCatalog", true); // Flag to identify index updates
+
     connect(reply, &QNetworkReply::finished, this, [this, reply]() { this->onFinished(reply); });
 }
 
@@ -34,15 +37,17 @@ void DownloadManager::onFinished(QNetworkReply *reply) {
             file.write(reply->readAll());
             file.close();
 
-            if (isCatalog) emit catalogDownloaded(true); // Signal successful write
-            emit finished(savePath);
+            if (isCatalog) {
+                Q_EMIT catalogDownloaded(true); // Signal successful write for parser
+            }
+            Q_EMIT finished(savePath);
         } else {
-            if (isCatalog) emit catalogDownloaded(false); // Signal write failure
-            emit error("Could not open file for writing: " + savePath);
+            if (isCatalog) Q_EMIT catalogDownloaded(false);
+            Q_EMIT error("Could not open file for writing: " + savePath);
         }
     } else {
-        if (isCatalog) emit catalogDownloaded(false); // Signal network failure
-        emit error("Download failed: " + reply->errorString());
+        if (isCatalog) Q_EMIT catalogDownloaded(false);
+        Q_EMIT error("Download failed: " + reply->errorString());
     }
     reply->deleteLater();
 }

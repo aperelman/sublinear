@@ -1,98 +1,211 @@
 #include "mainwindow.h"
-#include "snap_browser_widget.h"
-#include "local_files_widget.h"
-#include "download_manager.h"
-#include <QVBoxLayout>
 #include <QHBoxLayout>
-#include <QFrame>
-#include <QLocale>
-#include <QDateTime>
+#include <QVBoxLayout>
+#include <QTabWidget>
+#include <QSplitter>
+#include <QFileDialog>
+#include <QMessageBox>
+#include <QFile>
+#include <QStandardPaths>
+#include <zlib.h>
 
-MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
-    // 1. Initialize the shared DownloadManager first
-    downloadManager = new DownloadManager(this);
+MainWindow::MainWindow(QWidget *parent)
+    : QMainWindow(parent)
+    , m_downloadManager(std::make_unique<DownloadManager>(this))
+    , m_runner(std::make_unique<AlgorithmRunner>(this))
+{
+    auto *centralWidget = new QWidget(this);
+    auto *mainLayout = new QHBoxLayout(centralWidget);
+    auto *splitter = new QSplitter(Qt::Horizontal);
 
-    QWidget *centralWidget = new QWidget(this);
+    // --- LEFT SIDE ---
+    auto *leftSide = new QWidget();
+    auto *leftLayout = new QVBoxLayout(leftSide);
+    auto *tabs = new QTabWidget();
+
+    // Tab 1: Local File
+    auto *localTab = new QWidget();
+    auto *localLayout = new QVBoxLayout(localTab);
+    m_editFilePath = new QLineEdit();
+    auto *btnBrowse = new QPushButton("Browse...");
+    localLayout->addWidget(new QLabel("Local Graph File Path:"));
+    localLayout->addWidget(m_editFilePath);
+    localLayout->addWidget(btnBrowse);
+    localLayout->addStretch();
+
+    // Tab 2: SNAP Browser
+    m_snapBrowser = new SnapBrowserWidget(m_downloadManager.get());
+
+    tabs->addTab(localTab, "Local File");
+    tabs->addTab(m_snapBrowser, "SNAP Online");
+    leftLayout->addWidget(tabs);
+
+    // --- Graph Properties ---
+    auto *propsGroup = new QWidget();
+    auto *propsLayout = new QVBoxLayout(propsGroup);
+    m_labelNodes     = new QLabel("Nodes: —");
+    m_labelEdges     = new QLabel("Edges: —");
+    m_labelTriangles = new QLabel("Triangles: —");
+    propsLayout->addWidget(new QLabel("<b>Graph Properties</b>"));
+    propsLayout->addWidget(m_labelNodes);
+    propsLayout->addWidget(m_labelEdges);
+    propsLayout->addWidget(m_labelTriangles);
+    leftLayout->addWidget(propsGroup);
+
+    // --- RIGHT SIDE ---
+    auto *rightSide = new QWidget();
+    auto *rightLayout = new QVBoxLayout(rightSide);
+    m_algoSelection = new QComboBox();
+    m_algoSelection->addItems({"Exact Triangle Counting", "Arboricity Estimation"});
+    m_btnRun = new QPushButton("Run Analysis");
+    m_btnRun->setMinimumHeight(40);
+    m_textLog = new QPlainTextEdit();
+    m_textLog->setReadOnly(true);
+
+    rightLayout->addWidget(new QLabel("Algorithm:"));
+    rightLayout->addWidget(m_algoSelection);
+    rightLayout->addWidget(m_btnRun);
+    rightLayout->addSpacing(10);
+    rightLayout->addWidget(new QLabel("Execution Log:"));
+    rightLayout->addWidget(m_textLog);
+
+    splitter->addWidget(leftSide);
+    splitter->addWidget(rightSide);
+    splitter->setSizes({900, 500});
+
+    mainLayout->addWidget(splitter);
     setCentralWidget(centralWidget);
-    QHBoxLayout *mainLayout = new QHBoxLayout(centralWidget);
+    resize(1000, 600);
 
-    // Left Column
-    QVBoxLayout *leftColumn = new QVBoxLayout();
-    tabWidget = new QTabWidget(this);
-
-    // 2. Pass the manager to the browser widget
-    // This satisfies: SnapBrowserWidget(DownloadManager *mgr, QWidget *parent)
-    snapBrowser = new SnapBrowserWidget(downloadManager, this);
-    localFilesTab = new LocalFilesWidget(this);
-
-    tabWidget->addTab(localFilesTab, "Local Files");
-    tabWidget->addTab(snapBrowser, "SNAP Datasets");
-    leftColumn->addWidget(tabWidget, 1);
-
-    // Property Box (Preserved exactly)
-    QFrame *detailsBox = new QFrame(this);
-    QVBoxLayout *boxLayout = new QVBoxLayout(detailsBox);
-    label_nodes = new QLabel("Nodes: -");
-    label_edges = new QLabel("Edges: -");
-    label_triangles = new QLabel("Triangles: -");
-    boxLayout->addWidget(label_nodes);
-    boxLayout->addWidget(label_edges);
-    boxLayout->addWidget(label_triangles);
-    leftColumn->addWidget(detailsBox);
-    mainLayout->addLayout(leftColumn, 2);
-
-    // Right Column (Preserved exactly)
-    QVBoxLayout *rightColumn = new QVBoxLayout();
-    algoSelection = new QComboBox(this);
-    algoSelection->addItems({"PageRank", "Connected Components"});
-    btn_run = new QPushButton("Run Analysis");
-    messagePanel = new QTextEdit();
-    messagePanel->setReadOnly(true);
-    rightColumn->addWidget(new QLabel("Algorithm:"));
-    rightColumn->addWidget(algoSelection);
-    rightColumn->addWidget(btn_run);
-    rightColumn->addWidget(messagePanel, 1);
-    mainLayout->addLayout(rightColumn, 1);
-
-    // LOGIC CONNECTIONS
-    connect(snapBrowser, &SnapBrowserWidget::datasetMetadataLoaded, this, &MainWindow::updateProperties);
-    connect(snapBrowser, &SnapBrowserWidget::logMessage, this, &MainWindow::logMessage);
-
-    // Download Requested from SNAP tab
-    connect(snapBrowser, &SnapBrowserWidget::downloadRequested, this, [this](const QString &name, const QUrl &url){
-        logMessage("Starting download for: " + name);
-        QString savePath = "C:/BIU/data/" + name + ".txt.gz";
-        downloadManager->startDownload(url, savePath);
+    // --- SIGNALS AND SLOTS ---
+    connect(btnBrowse, &QPushButton::clicked, this, [this]() {
+        QString file = QFileDialog::getOpenFileName(this, "Select Graph File");
+        if (!file.isEmpty()) {
+            m_editFilePath->setText(file);
+            m_pendingSnapName.clear();
+            m_pendingSnapUrl.clear();
+        }
     });
 
-    // Refresh Local Files whenever ANY download completes
-    connect(downloadManager, &DownloadManager::finished, this, [this](const QString &path){
-        localFilesTab->scanDirectory("C:/BIU/data");
-        logMessage("File synchronized: " + path);
+    connect(m_btnRun, &QPushButton::clicked, this, &MainWindow::handleRunClicked);
+
+    connect(m_snapBrowser, &SnapBrowserWidget::datasetMetadataLoaded,
+            this, &MainWindow::updateProperties);
+    connect(m_snapBrowser, &SnapBrowserWidget::logMessage,
+            m_textLog, &QPlainTextEdit::appendPlainText);
+
+    // Track selected SNAP dataset
+    connect(m_snapBrowser, &SnapBrowserWidget::datasetMetadataLoaded,
+            this, [this](const QString &name, int64_t, int64_t, int64_t) {
+        m_pendingSnapName = name;
+        m_pendingSnapUrl  = QUrl("https://snap.stanford.edu/data/" + name + ".txt.gz");
+        m_editFilePath->clear();
     });
 
-    connect(btn_run, &QPushButton::clicked, this, &MainWindow::handleRunClicked);
-
-    setWindowTitle("Graph Analyzer");
-    resize(1100, 750);
-
-    // Initial directory scan
-    localFilesTab->scanDirectory("C:/BIU/data");
+    connect(m_runner.get(), &AlgorithmRunner::logRequest,
+            m_textLog, &QPlainTextEdit::appendPlainText);
+    connect(m_runner.get(), &AlgorithmRunner::finished,
+            this, &MainWindow::updateProperties);
+    connect(m_runner.get(), &AlgorithmRunner::arboricityFinished, this, [this](double arb) {
+        m_textLog->appendPlainText(QString("Arboricity: %1").arg(arb));
+    });
+    connect(m_runner.get(), &AlgorithmRunner::arboricityFailedZero, this, [this]() {
+        m_textLog->appendPlainText("Arboricity computation returned zero.");
+    });
 }
 
-void MainWindow::logMessage(const QString &msg) {
-    messagePanel->append("[" + QDateTime::currentDateTime().toString("hh:mm:ss") + "] " + msg);
+MainWindow::~MainWindow() {}
+
+bool MainWindow::decompressGz(const QString &gzPath, const QString &outPath) {
+    gzFile in = gzopen(gzPath.toLocal8Bit().constData(), "rb");
+    if (!in) return false;
+    QFile out(outPath);
+    if (!out.open(QIODevice::WriteOnly)) {
+        gzclose(in);
+        return false;
+    }
+    char buf[65536];
+    int bytesRead;
+    while ((bytesRead = gzread(in, buf, sizeof(buf))) > 0)
+        out.write(buf, bytesRead);
+    gzclose(in);
+    return true;
 }
 
-void MainWindow::updateProperties(const QString &name, int64_t nodes, int64_t edges, int64_t triangles) {
-    m_currentSnapName = name;
-    QLocale locale(QLocale::English);
-    label_nodes->setText("Nodes: " + locale.toString((qlonglong)nodes));
-    label_edges->setText("Edges: " + locale.toString((qlonglong)edges));
-    label_triangles->setText("Triangles: " + locale.toString((qlonglong)triangles));
+QString MainWindow::localPathForDataset(const QString &name) const {
+    QString dataDir = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+    return dataDir + "/" + name + ".txt";
+}
+
+void MainWindow::runAlgorithmOnFile(const QString &filePath) {
+    if (m_algoSelection->currentText() == "Exact Triangle Counting") {
+        m_runner->runTriangleCounting(filePath);
+    } else {
+        m_runner->runArboricity(filePath, 0);
+    }
 }
 
 void MainWindow::handleRunClicked() {
-    if (m_currentSnapName.isEmpty()) return;
-    logMessage("Running " + algoSelection->currentText() + " on " + m_currentSnapName);
+    m_textLog->clear();
+
+    // Case 1: local file
+    QString localPath = m_editFilePath->text();
+    if (!localPath.isEmpty()) {
+        if (!QFile::exists(localPath)) {
+            QMessageBox::warning(this, "Error", "File not found: " + localPath);
+            return;
+        }
+        m_textLog->appendPlainText("Initializing analysis on local file...");
+        runAlgorithmOnFile(localPath);
+        return;
+    }
+
+    // Case 2: SNAP dataset
+    if (m_pendingSnapName.isEmpty()) {
+        QMessageBox::warning(this, "Error", "No file or dataset selected.");
+        return;
+    }
+
+    // Check cache
+    QString txtPath = localPathForDataset(m_pendingSnapName);
+    if (QFile::exists(txtPath)) {
+        m_textLog->appendPlainText("Using cached file: " + txtPath);
+        runAlgorithmOnFile(txtPath);
+        return;
+    }
+
+    // Download then decompress then run
+    m_textLog->appendPlainText("Downloading " + m_pendingSnapName + "...");
+    m_btnRun->setEnabled(false);
+
+    QString gzPath = txtPath + ".gz";
+
+    connect(m_downloadManager.get(), &DownloadManager::finished,
+            this, [this, gzPath, txtPath](const QString &path) {
+        if (path != gzPath) return;
+        m_btnRun->setEnabled(true);
+        m_textLog->appendPlainText("Decompressing...");
+        if (decompressGz(gzPath, txtPath)) {
+            QFile::remove(gzPath);
+            m_textLog->appendPlainText("Running analysis...");
+            runAlgorithmOnFile(txtPath);
+        } else {
+            m_textLog->appendPlainText("Failed to decompress file.");
+        }
+    }, Qt::SingleShotConnection);
+
+    connect(m_downloadManager.get(), &DownloadManager::error,
+            this, [this](const QString &msg) {
+        m_btnRun->setEnabled(true);
+        m_textLog->appendPlainText("Download error: " + msg);
+    }, Qt::SingleShotConnection);
+
+    m_downloadManager->startDownload(m_pendingSnapUrl, gzPath);
+}
+
+void MainWindow::updateProperties(const QString& name, int64_t nodes, int64_t edges, int64_t triangles) {
+    m_labelNodes->setText(QString("Nodes: %1").arg(nodes));
+    m_labelEdges->setText(QString("Edges: %1").arg(edges));
+    m_labelTriangles->setText(QString("Triangles: %1").arg(triangles));
+    m_textLog->appendPlainText(QString("Displaying details for: %1").arg(name));
 }

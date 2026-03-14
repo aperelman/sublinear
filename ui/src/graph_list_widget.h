@@ -11,22 +11,17 @@ class GraphListWidget : public QTableWidget {
 public:
     explicit GraphListWidget(QWidget *parent = nullptr);
 
-    // Starts the "Quick Sync" (Names only)
     void fetchNamesOnly();
 
-    signals:
-        // Notifies MainWindow to fetch detailed metadata for this specific URL path
-        void requestMetadata(const QString& name, const QString& urlPath);
+Q_SIGNALS:
+    void requestMetadata(const QString& name, const QString& urlPath);
 
-private slots:
-    // Handles the network response from SNAP index page
+private Q_SLOTS:
     void onMainPageDownloaded(QNetworkReply* reply);
-
-    // Handles user selection in the table
     void onRowSelected();
 
 private:
-    QNetworkAccessManager *m_internalManager=nullptr;
+    QNetworkAccessManager *m_internalManager = nullptr;
 };
 
 #endif // GRAPH_LIST_WIDGET_H

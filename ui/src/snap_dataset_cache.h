@@ -20,13 +20,13 @@ class SnapDatasetCache : public QObject
 
 public:
     explicit SnapDatasetCache(QObject *parent = nullptr);
-    
+
     void addDataset(const QString &name, const DatasetStats &stats);
     DatasetStats getDataset(const QString &name) const;
     bool hasDataset(const QString &name) const;
     QStringList getAllDatasetNames() const;
-    
-signals:
+
+Q_SIGNALS:
     void datasetSelected(const QString &name, const DatasetStats &stats);
     void analysisRequested(const QString &name);
 

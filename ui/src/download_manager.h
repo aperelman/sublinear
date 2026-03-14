@@ -5,6 +5,7 @@
 #include <QUrl>
 #include <QFile>
 #include <QNetworkAccessManager>
+#include <QNetworkReply>
 
 class DownloadManager : public QObject {
     Q_OBJECT
@@ -17,15 +18,13 @@ public:
     // SNAP index catalog download (.html)
     void startCatalogDownload(const QUrl &url, const QString &savePath);
 
-    signals:
+    Q_SIGNALS: // Required by QT_NO_KEYWORDS in CMakeLists.txt
         void progress(int percentage);
     void finished(const QString &filePath);
     void error(const QString &message);
+    void catalogDownloaded(bool success); // Signal for SnapBrowserWidget to parse index
 
-    // Emits true on successful save, false if download or write fails
-    void catalogDownloaded(bool success);
-
-private slots:
+private Q_SLOTS: // Required by QT_NO_KEYWORDS in CMakeLists.txt
     void onFinished(QNetworkReply *reply);
 
 private:

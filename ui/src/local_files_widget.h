@@ -1,7 +1,6 @@
 #ifndef LOCAL_FILES_WIDGET_H
 #define LOCAL_FILES_WIDGET_H
 
-
 #include <QWidget>
 #include <QListView>
 #include <QStandardItemModel>
@@ -14,14 +13,12 @@ public:
     explicit LocalFilesWidget(QWidget *parent = nullptr);
     ~LocalFilesWidget() = default;
 
-    // Call this to refresh the list of files on disk
     void scanDirectory(const QString &path);
 
-signals:
-    // Signal to tell MainWindow which local file was selected
+Q_SIGNALS:
     void fileSelected(const QString &fileName);
 
-private slots:
+private Q_SLOTS:
     void handleSelectionChanged(const QItemSelection &selected, const QItemSelection &deselected);
     void onOpenFolderClicked();
 

@@ -58,5 +58,5 @@ void GraphListWidget::onRowSelected() {
     if (selected.isEmpty()) return;
 
     QTableWidgetItem* item = selected.first();
-    emit requestMetadata(item->text(), item->data(Qt::UserRole).toString());
+    Q_EMIT requestMetadata(item->text(), item->data(Qt::UserRole).toString());
 }

@@ -3,111 +3,154 @@
 #include <QHeaderView>
 #include <QFile>
 #include <QRegularExpression>
+#include <QStandardPaths>
+#include <QDir>
+#include <QUrl>
+
+QString getIndexFilePath() {
+    QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/data";
+    QDir().mkpath(dataDir);
+    return dataDir + "/snap_index.html";
+}
 
 SnapBrowserWidget::SnapBrowserWidget(DownloadManager *mgr, QWidget *parent)
     : QWidget(parent), downloadManager(mgr) {
-
-    QVBoxLayout *layout = new QVBoxLayout(this);
-
-    // Model with only one visible column
+    auto *layout = new QVBoxLayout(this);
     datasetModel = new QStandardItemModel(this);
-    datasetModel->setHorizontalHeaderLabels({"Dataset Name"});
-
     datasetView = new QTreeView(this);
     datasetView->setModel(datasetModel);
-
-    // Make the TreeView look like a simple list
-    datasetView->setRootIsDecorated(false);      // No expand/collapse arrows
-    datasetView->setIndentation(0);               // No left-side padding
-    datasetView->header()->setVisible(false);     // Hide the "Dataset Name" header
+    datasetView->setRootIsDecorated(false);
+    datasetView->header()->setVisible(false);
     datasetView->setSelectionBehavior(QAbstractItemView::SelectRows);
     datasetView->setEditTriggers(QAbstractItemView::NoEditTriggers);
     datasetView->setAlternatingRowColors(true);
-
     datasetView->header()->setSectionResizeMode(QHeaderView::Stretch);
-    layout->addWidget(datasetView, 1);
 
     refreshButton = new QPushButton("Refresh SNAP Index", this);
+    layout->addWidget(datasetView, 1);
     layout->addWidget(refreshButton);
 
-    // Connections
     connect(refreshButton, &QPushButton::clicked, this, &SnapBrowserWidget::onRefreshClicked);
-    connect(datasetView, &QTreeView::doubleClicked, this, &SnapBrowserWidget::onDoubleClicked);
     connect(datasetView->selectionModel(), &QItemSelectionModel::selectionChanged,
             this, &SnapBrowserWidget::handleSelectionChanged);
+    connect(datasetView, &QTreeView::doubleClicked, this, &SnapBrowserWidget::onDoubleClicked);
 
-    connect(downloadManager, &DownloadManager::catalogDownloaded,
-            this, &SnapBrowserWidget::handleCatalogReady);
+    if (downloadManager) {
+        connect(downloadManager, &DownloadManager::catalogDownloaded, this, &SnapBrowserWidget::handleCatalogReady);
+    }
 }
 
 void SnapBrowserWidget::onRefreshClicked() {
     refreshButton->setEnabled(false);
-    emit logMessage("Fetching latest SNAP index...");
-    downloadManager->startCatalogDownload(
-        QUrl("https://snap.stanford.edu/data/index.html"),
-        "C:/BIU/data/snap_index.html"
-    );
+    Q_EMIT logMessage("Fetching latest SNAP index...");
+    downloadManager->startCatalogDownload(QUrl("https://snap.stanford.edu/data/index.html"), getIndexFilePath());
 }
 
 void SnapBrowserWidget::handleCatalogReady(bool success) {
     refreshButton->setEnabled(true);
     if (success) {
-        QFile file("C:/BIU/data/snap_index.html");
+        QFile file(getIndexFilePath());
         if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            QString content = file.readAll();
+            parseSnapHtml(file.readAll());
             file.close();
-            parseSnapHtml(content);
         }
-    } else {
-        emit logMessage("Network error. Could not reach SNAP servers.");
     }
 }
 
 void SnapBrowserWidget::parseSnapHtml(const QString &html) {
     datasetModel->removeRows(0, datasetModel->rowCount());
 
-    // Regex to capture Name, Nodes, and Edges
-    QRegularExpression re("<tr.*?>\\s*<td.*?>\\s*<a href=\".*?\">(.*?)</a>\\s*</td>\\s*<td.*?>(.*?)</td>\\s*<td.*?>(.*?)</td>");
+    QRegularExpression re("<tr.*?>\\s*<td.*?>\\s*<a href=\"(.*?)\">(.*?)</a>\\s*</td>\\s*<td.*?>(.*?)</td>\\s*<td.*?>(.*?)</td>");
     re.setPatternOptions(QRegularExpression::DotMatchesEverythingOption);
 
     QRegularExpressionMatchIterator i = re.globalMatch(html);
-
     while (i.hasNext()) {
         QRegularExpressionMatch match = i.next();
-        QString name = match.captured(1).trimmed();
-        QString nodes = match.captured(2).trimmed().replace(",", "");
-        QString edges = match.captured(3).trimmed().replace(",", "");
+        QString path = match.captured(1).trimmed();
+        QString name = match.captured(2).trimmed();
+        QString nodes = match.captured(3).trimmed().replace(",", "");
+        QString edges = match.captured(4).trimmed().replace(",", "");
 
         if (!name.isEmpty()) {
-            QStandardItem* nameItem = new QStandardItem(name);
+            auto *nameItem = new QStandardItem(name);
 
-            // Hide technical data in UserRoles so they don't show up in the list
             nameItem->setData(nodes, Qt::UserRole + 1);
             nameItem->setData(edges, Qt::UserRole + 2);
+            nameItem->setData(qlonglong(-1), Qt::UserRole + 3);  // unvisited sentinel
+
+            QUrl downloadUrl("https://snap.stanford.edu/data/" + name + ".txt.gz");
+            nameItem->setData(downloadUrl, Qt::UserRole);
 
             datasetModel->appendRow(nameItem);
         }
     }
-    emit logMessage("Index synchronized.");
-}
-
-void SnapBrowserWidget::onDoubleClicked(const QModelIndex &index) {
-    if (!index.isValid()) return;
-    QString name = datasetModel->item(index.row(), 0)->text();
-    emit downloadRequested(name, QUrl("https://snap.stanford.edu/data/" + name + ".txt.gz"));
 }
 
 void SnapBrowserWidget::handleSelectionChanged(const QItemSelection &selected, const QItemSelection &) {
     if (selected.indexes().isEmpty()) return;
-
     QModelIndex index = selected.indexes().first();
     QStandardItem* item = datasetModel->itemFromIndex(index);
+    QString name = item->text();
 
-    // Broadcast the hidden data to the main window labels
-    emit datasetMetadataLoaded(
+    if (item->data(Qt::UserRole + 3).toLongLong() == -1) {
+        Q_EMIT logMessage("Deep visiting " + name + " for full metadata...");
+        QUrl subPageUrl("https://snap.stanford.edu/data/" + name + ".html");
+        QString tempPath = QStandardPaths::writableLocation(QStandardPaths::TempLocation) + "/" + name + ".html";
+
+        connect(downloadManager, &DownloadManager::finished, this, [this, item, tempPath](const QString &path) {
+            if (path == tempPath) {
+                QFile file(path);
+                if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                    parseDeepPage(file.readAll(), item);
+                    file.close();
+                    QFile::remove(path);
+                }
+            }
+        }, Qt::SingleShotConnection);
+
+        downloadManager->startDownload(subPageUrl, tempPath);
+    } else {
+        Q_EMIT datasetMetadataLoaded(
+            item->text(),
+            item->data(Qt::UserRole + 1).toLongLong(),
+            item->data(Qt::UserRole + 2).toLongLong(),
+            item->data(Qt::UserRole + 3).toLongLong()
+        );
+    }
+}
+
+void SnapBrowserWidget::parseDeepPage(const QString &html, QStandardItem *item) {
+    QRegularExpression triRegex("Triangles\\s*</td>\\s*<td.*?>(\\d[\\d,]*)</td>", QRegularExpression::CaseInsensitiveOption);
+    QRegularExpressionMatch match = triRegex.match(html);
+    int64_t triangles = match.hasMatch() ? match.captured(1).replace(",", "").toLongLong() : 0;
+
+    item->setData(qlonglong(triangles), Qt::UserRole + 3);  // unambiguous cast
+
+    Q_EMIT datasetMetadataLoaded(
         item->text(),
         item->data(Qt::UserRole + 1).toLongLong(),
         item->data(Qt::UserRole + 2).toLongLong(),
-        0
+        qlonglong(triangles)
     );
+    Q_EMIT logMessage("Deep visit complete: " + item->text());
+}
+
+void SnapBrowserWidget::onDoubleClicked(const QModelIndex &index) {
+    if (!index.isValid()) return;
+    QStandardItem* item = datasetModel->itemFromIndex(index);
+    QString name = item->text();
+    QUrl url = item->data(Qt::UserRole).toUrl();
+
+    if (url.isEmpty())
+        url = QUrl("https://snap.stanford.edu/data/" + name + ".txt.gz");
+
+    Q_EMIT downloadRequested(name, url);
+}
+
+QUrl SnapBrowserWidget::getUrlForDataset(const QString& filename) const {
+    QList<QStandardItem*> items = datasetModel->findItems(filename,
+                                    Qt::MatchExactly | Qt::MatchRecursive, 0);
+    if (!items.isEmpty())
+        return items.first()->data(Qt::UserRole).toUrl();
+    return QUrl();
 }

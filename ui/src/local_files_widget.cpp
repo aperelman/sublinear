@@ -61,6 +61,6 @@ void LocalFilesWidget::handleSelectionChanged(const QItemSelection &selected, co
     Q_UNUSED(deselected);
     if (!selected.indexes().isEmpty()) {
         QString fileName = fileModel->data(selected.indexes().first()).toString();
-        emit fileSelected(fileName);
+        Q_EMIT fileSelected(fileName);
     }
 }
