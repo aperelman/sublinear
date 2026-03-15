@@ -13,7 +13,8 @@ public:
     explicit LocalFilesWidget(QWidget *parent = nullptr);
     ~LocalFilesWidget() = default;
 
-    void scanDirectory(const QString &path);
+    // Pass empty string to use the default platform-appropriate data dir
+    void scanDirectory(const QString &path = {});
 
 Q_SIGNALS:
     void fileSelected(const QString &fileName);
@@ -23,9 +24,10 @@ private Q_SLOTS:
     void onOpenFolderClicked();
 
 private:
-    QListView *fileView;
+    QListView          *fileView;
     QStandardItemModel *fileModel;
-    QPushButton *btnOpenFolder;
+    QPushButton        *btnOpenFolder;
+    QString             m_currentDir;
 };
 
 #endif // LOCAL_FILES_WIDGET_H
