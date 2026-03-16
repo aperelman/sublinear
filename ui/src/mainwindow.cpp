@@ -494,7 +494,8 @@ void MainWindow::updateProperties(const QString& name, int64_t nodes, int64_t ed
         return;
     }
 
-    if (triangles > 0) m_pendingSnapTriangles = triangles;
+    if (triangles > 0 && algo != "Importance Sampling (Triangle Estimation)")
+        m_pendingSnapTriangles = triangles;
     updateStatusLabel();
 
     // Final result logging and report
