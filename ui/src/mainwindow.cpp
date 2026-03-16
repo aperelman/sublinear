@@ -66,13 +66,99 @@ MainWindow::MainWindow(QWidget *parent)
     auto *leftLayout = new QVBoxLayout(leftSide);
     auto *tabs = new QTabWidget();
 
+    // Style the tabs with larger font
+    tabs->setStyleSheet(R"(
+        QTabWidget::pane {
+            border: 1px solid #cccccc;
+            border-radius: 4px;
+            padding: 8px;
+            background: white;
+        }
+        QTabBar::tab {
+            background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                        stop: 0 #f6f7f9, stop: 1 #e6e9ef);
+            border: 1px solid #cccccc;
+            border-bottom: none;
+            border-top-left-radius: 4px;
+            border-top-right-radius: 4px;
+            padding: 10px 20px;
+            margin-right: 2px;
+            font-weight: bold;
+            font-size: 13px;
+        }
+        QTabBar::tab:selected {
+            background: white;
+            border-bottom-color: white;
+            margin-bottom: -1px;
+        }
+        QTabBar::tab:hover:!selected {
+            background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                        stop: 0 #ffffff, stop: 1 #f0f3f9);
+        }
+    )");
+
+    // Local File Tab with improved layout
     auto *localTab = new QWidget();
     auto *localLayout = new QVBoxLayout(localTab);
+    localLayout->setSpacing(12);
+    localLayout->setContentsMargins(15, 15, 15, 15);
+
+    // Styled section label with larger font
+    auto *localLabel = new QLabel("📂 Local Graph File");
+    localLabel->setStyleSheet(
+        "font-weight: bold;"
+        "font-size: 14px;"
+        "color: #2c3e50;"
+        "padding: 6px 0;"
+    );
+
+    // Horizontal layout for file input and browse button
+    auto *fileInputLayout = new QHBoxLayout();
+    fileInputLayout->setSpacing(10);
+
     m_editFilePath = new QLineEdit();
-    auto *btnBrowse = new QPushButton("Browse...");
-    localLayout->addWidget(new QLabel("Local Graph File Path:"));
-    localLayout->addWidget(m_editFilePath);
-    localLayout->addWidget(btnBrowse);
+    m_editFilePath->setPlaceholderText("Select a graph file...");
+    m_editFilePath->setMinimumHeight(38);
+    m_editFilePath->setStyleSheet(
+        "QLineEdit {"
+        "   border: 1px solid #cccccc;"
+        "   border-radius: 5px;"
+        "   padding: 6px 10px;"
+        "   background: white;"
+        "   font-size: 13px;"
+        "}"
+        "QLineEdit:focus {"
+        "   border: 2px solid #3498db;"
+        "}"
+    );
+
+    auto *btnBrowse = new QPushButton("📁 Browse...");
+    btnBrowse->setMinimumHeight(38);
+    btnBrowse->setMinimumWidth(110);
+    btnBrowse->setCursor(Qt::PointingHandCursor);
+    btnBrowse->setStyleSheet(R"(
+        QPushButton {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            padding: 6px 16px;
+            font-weight: bold;
+            font-size: 13px;
+        }
+        QPushButton:hover {
+            background-color: #2980b9;
+        }
+        QPushButton:pressed {
+            background-color: #216795;
+        }
+    )");
+
+    fileInputLayout->addWidget(m_editFilePath, 3);
+    fileInputLayout->addWidget(btnBrowse, 1);
+
+    localLayout->addWidget(localLabel);
+    localLayout->addLayout(fileInputLayout);
     localLayout->addStretch();
 
     m_snapBrowser = new SnapBrowserWidget(m_downloadManager.get());
@@ -80,67 +166,219 @@ MainWindow::MainWindow(QWidget *parent)
     tabs->addTab(m_snapBrowser, "SNAP Online");
     leftLayout->addWidget(tabs);
 
+    // Graph Properties section with larger fonts
     auto *propsGroup = new QWidget();
     auto *propsLayout = new QVBoxLayout(propsGroup);
+    propsLayout->setSpacing(8);
+    
     m_labelNodes     = new QLabel("Nodes: —");
     m_labelEdges     = new QLabel("Edges: —");
     m_labelTriangles = new QLabel("Triangles: —");
-    propsLayout->addWidget(new QLabel("<b>Graph Properties</b>"));
+    
+    // Style the properties labels with larger font
+    QString propLabelStyle = "font-weight: bold; color: #2c3e50; font-size: 14px; padding: 4px 0;";
+    m_labelNodes->setStyleSheet(propLabelStyle);
+    m_labelEdges->setStyleSheet(propLabelStyle);
+    m_labelTriangles->setStyleSheet(propLabelStyle);
+    
+    auto *propsTitle = new QLabel("📊 Graph Properties");
+    propsTitle->setStyleSheet("font-weight: bold; font-size: 15px; color: #34495e; padding: 6px 0;");
+    
+    propsLayout->addWidget(propsTitle);
     propsLayout->addWidget(m_labelNodes);
     propsLayout->addWidget(m_labelEdges);
     propsLayout->addWidget(m_labelTriangles);
+    propsLayout->addStretch();
+    
+    // Add a subtle background to properties
+    propsGroup->setStyleSheet(
+        "QWidget {"
+        "   background-color: #f8f9fa;"
+        "   border: 1px solid #e9ecef;"
+        "   border-radius: 5px;"
+        "   padding: 12px;"
+        "}"
+    );
+    
     leftLayout->addWidget(propsGroup);
 
     // ----------------------------------------------------------------- RIGHT
     auto *rightSide = new QWidget();
     auto *rightLayout = new QVBoxLayout(rightSide);
+    rightLayout->setSpacing(12);
 
+    // Algorithm Selection with styled label
+    auto *algoLabel = new QLabel("🎯 Algorithm:");
+    algoLabel->setStyleSheet("font-weight: bold; color: #2c3e50; font-size: 14px;");
+    
     m_algoSelection = new QComboBox();
     m_algoSelection->addItems({
         "Exact Arboricity",
         "Exact Triangle Counting",
         "Importance Sampling (Triangle Estimation)"
     });
+    m_algoSelection->setMinimumHeight(38);
+    m_algoSelection->setStyleSheet(
+        "QComboBox {"
+        "   border: 1px solid #cccccc;"
+        "   border-radius: 5px;"
+        "   padding: 6px 10px;"
+        "   background: white;"
+        "   min-width: 280px;"
+        "   font-size: 13px;"
+        "}"
+        "QComboBox:hover {"
+        "   border: 1px solid #999999;"
+        "}"
+        "QComboBox::drop-down {"
+        "   border: none;"
+        "   width: 28px;"
+        "}"
+        "QComboBox::down-arrow {"
+        "   image: none;"
+        "   border-left: 5px solid transparent;"
+        "   border-right: 5px solid transparent;"
+        "   border-top: 5px solid #666;"
+        "   margin-right: 10px;"
+        "}"
+    );
 
+    // Degeneracy controls in a horizontal layout
+    auto *degenWidget = new QWidget();
+    auto *degenLayout = new QHBoxLayout(degenWidget);
+    degenLayout->setContentsMargins(0, 0, 0, 0);
+    degenLayout->setSpacing(10);
+    
     m_degeneracyLabel = new QLabel("Degeneracy (0 = auto):");
+    m_degeneracyLabel->setStyleSheet("font-size: 13px;");
+    
     m_degeneracySpinBox = new QSpinBox();
     m_degeneracySpinBox->setRange(0, 100000);
     m_degeneracySpinBox->setValue(0);
+    m_degeneracySpinBox->setMinimumHeight(34);
+    m_degeneracySpinBox->setMinimumWidth(90);
     m_degeneracySpinBox->setToolTip(
         "Degeneracy hint for arboricity computation.\n"
-        "Set to 0 to let the algorithm compute it automatically.");
+        "Set to 0 to let the algorithm compute it automatically."
+    );
+    m_degeneracySpinBox->setStyleSheet(
+        "QSpinBox {"
+        "   border: 1px solid #cccccc;"
+        "   border-radius: 4px;"
+        "   padding: 4px 6px;"
+        "   font-size: 13px;"
+        "}"
+    );
+    
+    degenLayout->addWidget(m_degeneracyLabel);
+    degenLayout->addWidget(m_degeneracySpinBox);
+    degenLayout->addStretch();
+    
     m_degeneracyLabel->setVisible(true);
     m_degeneracySpinBox->setVisible(true);
 
+    // Status label with improved styling and larger font
     m_labelStatus = new QLabel("α: —   T_ref: —");
-    m_labelStatus->setStyleSheet("color: gray; font-size: 11px;");
+    m_labelStatus->setStyleSheet(
+        "QLabel {"
+        "   color: #2c3e50;"
+        "   font-size: 14px;"
+        "   font-family: monospace;"
+        "   background: #f8f9fa;"
+        "   border: 1px solid #e9ecef;"
+        "   border-radius: 5px;"
+        "   padding: 10px;"
+        "   margin: 6px 0;"
+        "}"
+    );
 
-    m_btnRun = new QPushButton("Run Analysis");
-    m_btnRun->setMinimumHeight(40);
+    // Run button with play icon and improved styling
+    m_btnRun = new QPushButton("▶ Run Analysis");
+    m_btnRun->setMinimumHeight(48);
+    m_btnRun->setCursor(Qt::PointingHandCursor);
+    m_btnRun->setStyleSheet(R"(
+        QPushButton {
+            background-color: #27ae60;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 15px;
+            font-weight: bold;
+            padding: 10px;
+            margin: 10px 0;
+        }
+        QPushButton:hover {
+            background-color: #2ecc71;
+        }
+        QPushButton:pressed {
+            background-color: #229954;
+        }
+        QPushButton:disabled {
+            background-color: #95a5a6;
+        }
+    )");
+
+    // Log area with improved styling - LIGHT THEME and LARGER FONT
+    auto *logLabel = new QLabel("📋 Execution Log:");
+    logLabel->setStyleSheet("font-weight: bold; color: #2c3e50; margin-top: 10px; font-size: 14px;");
+    
     m_textLog = new QTextEdit();
     m_textLog->setReadOnly(true);
     m_textLog->setAcceptRichText(true);
-    m_textLog->setFont(QFont("Monospace", 9));
+    m_textLog->setFont(QFont("Consolas", 11));
+    m_textLog->setStyleSheet(
+        "QTextEdit {"
+        "   border: 1px solid #cccccc;"
+        "   border-radius: 5px;"
+        "   background-color: #ffffff;"
+        "   color: #000000;"
+        "   font-family: 'Consolas', 'Monaco', monospace;"
+        "   font-size: 11px;"
+        "   padding: 6px;"
+        "   line-height: 1.4;"
+        "}"
+    );
 
-    rightLayout->addWidget(new QLabel("Algorithm:"));
+    // Add widgets to right layout
+    rightLayout->addWidget(algoLabel);
     rightLayout->addWidget(m_algoSelection);
-    rightLayout->addWidget(m_degeneracyLabel);
-    rightLayout->addWidget(m_degeneracySpinBox);
+    rightLayout->addWidget(degenWidget);
     rightLayout->addWidget(m_labelStatus);
     rightLayout->addWidget(m_btnRun);
-    rightLayout->addSpacing(10);
-    rightLayout->addWidget(new QLabel("Execution Log:"));
+    rightLayout->addSpacing(8);
+    rightLayout->addWidget(logLabel);
     rightLayout->addWidget(m_textLog);
+
+    // Add stretch to push everything up
+    rightLayout->setStretchFactor(m_textLog, 2);
 
     splitter->addWidget(leftSide);
     splitter->addWidget(rightSide);
-    splitter->setSizes({900, 500});
+    splitter->setSizes({950, 550});
+    
+    // Style the splitter handle
+    splitter->setStyleSheet(R"(
+        QSplitter::handle {
+            background-color: #cccccc;
+            width: 3px;
+        }
+        QSplitter::handle:hover {
+            background-color: #999999;
+        }
+    )");
+
+    // Add padding and spacing to main layout
+    mainLayout->setContentsMargins(10, 10, 10, 10);
+    mainLayout->setSpacing(12);
+
     mainLayout->addWidget(splitter);
     setCentralWidget(centralWidget);
-    resize(1100, 650);
+    
+    // Set window title and size
+    setWindowTitle("📊 Graph Analyzer - Sublinear Algorithms");
+    resize(1300, 750);
 
     // --------------------------------------------------------- SIGNALS/SLOTS
-
     connect(btnBrowse, &QPushButton::clicked, this, [this]() {
         QString file = QFileDialog::getOpenFileName(this, "Select Graph File");
         if (!file.isEmpty()) {
@@ -163,7 +401,6 @@ MainWindow::MainWindow(QWidget *parent)
             this, [this](const QString &name, int64_t, int64_t, int64_t triangles) {
         m_pendingSnapName      = name;
         m_pendingSnapUrl       = QUrl("https://snap.stanford.edu/data/" + name + ".txt.gz");
-        // Store scraped value only as display hint — real T_ref comes from computation
         if (m_pendingSnapTriangles <= 0 && triangles > 0)
             m_pendingSnapTriangles = triangles;
         m_editFilePath->clear();
@@ -178,7 +415,6 @@ MainWindow::MainWindow(QWidget *parent)
         m_pendingSnapArboricity = arb;
         logResult(QString("Arboricity: %1").arg(arb));
         updateStatusLabel();
-        // Pipeline step 1 done → now run exact triangle counting
         if (!m_pipelineFilePath.isEmpty()) {
             m_pipelineNeedTriangles = true;
             logInfo("Step 2/3: Running exact triangle counting for T_ref...");
@@ -202,32 +438,32 @@ void MainWindow::logHtml(const QString &html) {
 }
 
 void MainWindow::logPhase(const QString &msg) {
-    logHtml(QString("<span style='color:%1;font-weight:bold;'>%2</span>")
+    logHtml(QString("<span style='color:%1;font-weight:bold;font-size:11pt;'>%2</span>")
         .arg(kColorPhase).arg(msg.toHtmlEscaped()));
 }
 
 void MainWindow::logInfo(const QString &msg) {
-    logHtml(QString("<span style='color:black;'>%1</span>")
+    logHtml(QString("<span style='color:black;font-size:11pt;'>%1</span>")
         .arg(msg.toHtmlEscaped()));
 }
 
 void MainWindow::logGraph(const QString &msg) {
-    logHtml(QString("<span style='color:%1;font-weight:bold;'>%2</span>")
+    logHtml(QString("<span style='color:%1;font-weight:bold;font-size:11pt;'>%2</span>")
         .arg(kColorGraph).arg(msg.toHtmlEscaped()));
 }
 
 void MainWindow::logResult(const QString &msg) {
-    logHtml(QString("<span style='color:%1;font-weight:bold;'>%2</span>")
+    logHtml(QString("<span style='color:%1;font-weight:bold;font-size:11pt;'>%2</span>")
         .arg(kColorResult).arg(msg.toHtmlEscaped()));
 }
 
 void MainWindow::logWarning(const QString &msg) {
-    logHtml(QString("<span style='color:%1;font-weight:bold;'>%2</span>")
+    logHtml(QString("<span style='color:%1;font-weight:bold;font-size:11pt;'>%2</span>")
         .arg(kColorWarning).arg(msg.toHtmlEscaped()));
 }
 
 void MainWindow::logError(const QString &msg) {
-    logHtml(QString("<span style='color:%1;font-weight:bold;'>%2</span>")
+    logHtml(QString("<span style='color:%1;font-weight:bold;font-size:11pt;'>%2</span>")
         .arg(kColorError).arg(msg.toHtmlEscaped()));
 }
 
@@ -356,10 +592,14 @@ bool MainWindow::decompressGz(const QString &gzPath, const QString &outPath) {
     return true;
 }
 
+// ---------- FIXED: Use GraphAnalyzer subfolder so files appear in Local Files tab ----------
 QString MainWindow::localPathForDataset(const QString &name) const {
-    QString dataDir = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+    QString dataDir = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation)
+                      + "/GraphAnalyzer";
+    QDir().mkpath(dataDir);               // create folder if it doesn't exist
     return dataDir + "/" + name + ".txt";
 }
+// -----------------------------------------------------------------------------------------
 
 void MainWindow::runAlgorithmOnFile(const QString &filePath) {
     const QString algo = m_algoSelection->currentText();
@@ -509,8 +749,9 @@ void MainWindow::updateProperties(const QString& name, int64_t nodes, int64_t ed
             double pct = (exact > 0) ? (gap / exact) * 100.0 : 0.0;
             QString pctStr = (pct >= 0 ? "+" : "") + QString::number(pct, 'f', 1) + "%";
             QString direction = (triangles > exact) ? "▲ over" : "▼ under";
-            logResult(QString("RESULT  estimated : %1").arg(triangles));
-            logResult(QString("        exact     : %1").arg(exact));
+            // Log order: exact first, then estimated (as discussed)
+            logResult(QString("RESULT  exact     : %1").arg(exact));
+            logResult(QString("        estimated : %1").arg(triangles));
             logResult(QString("        gap       : %1 (%2 by %3, %4)")
                 .arg(gap, 0, 'f', 0)
                 .arg(direction)
