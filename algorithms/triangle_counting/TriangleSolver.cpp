@@ -35,7 +35,8 @@ int64_t TriangleSolver::estimateTriangles(const QString& filePath, double alpha_
     double T_ref = (T_s > 0) ? T_s : static_cast<double>(TSnap::GetTriads(Graph));
 
     double t_prime = std::max(1.0, 0.1 * T_ref);
-    int64_t r = std::max(1000L, static_cast<int64_t>((m * alpha_ref) / (eps * t_prime)));
+//    int64_t r = std::max(1000L, static_cast<int64_t>((m * alpha_ref) / (eps * t_prime)));
+    res = std::max(static_cast<int64_t>(a), static_cast<int64_t>(b));
     double p1 = std::min(1.0, static_cast<double>(r) / static_cast<double>(m));
 
     // Sampling
