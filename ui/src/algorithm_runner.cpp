@@ -1,7 +1,13 @@
 #include "algorithm_runner.h"
+#include <QTime>
 #include "ExactArboricity.h"
+#include "GraphCache.h"
+#include "TriangleCounting.h"
 #include <QFile>
 #include <QThreadPool>
+#ifdef forever
+#undef forever
+#endif
 #include <Snap.h>
 #include <random>
 #include <vector>
@@ -11,7 +17,16 @@
 #include <algorithm>
 #include <chrono>
 
-AlgorithmRunner::AlgorithmRunner(QObject *parent) : QObject(parent) {}
+AlgorithmRunner::AlgorithmRunner(QObject *parent)
+    : QObject(parent)
+    , m_cache(std::make_unique<GraphCache>())
+{}
+
+AlgorithmRunner::~AlgorithmRunner() = default;
+
+void AlgorithmRunner::invalidateCache() {
+    m_cache->invalidate();
+}
 
 // ---------------------------------------------------------------------------
 // Timing helper
@@ -147,7 +162,10 @@ static QString normalizeGraphFile(const QString &filePath,
 void AlgorithmRunner::runTriangleCounting(const QString& filePath) {
     QThreadPool::globalInstance()->start([this, filePath]() {
         try {
-            auto log = [this](const QString &m){ Q_EMIT logRequest(m); };
+            auto log = [this](const QString &m){
+                QString ts = QTime::currentTime().toString("[HH:mm:ss] ");
+                Q_EMIT logRequest(ts + m);
+            };
             auto total = Clock::now();
 
             log("========================================");
@@ -158,14 +176,15 @@ void AlgorithmRunner::runTriangleCounting(const QString& filePath) {
             QString path = normalizeGraphFile(filePath, log);
             if (path.isEmpty()) return;
 
-            // Phase 2: graph loading
-            log("--- Phase: Graph Loading ---");
-            auto t = Clock::now();
-            PUNGraph Graph = TSnap::LoadEdgeList<PUNGraph>(path.toStdString().c_str(), 0, 1);
-            int64_t nodes = Graph->GetNodes();
-            int64_t edges = Graph->GetEdges();
-            log(QString("Loaded %1 nodes, %2 edges in %3 ms.")
-                    .arg(nodes).arg(edges).arg(elapsedMs(t), 0, 'f', 1));
+            // Phase 2: load graph (uses cache if already loaded)
+            auto cacheLog = [&](const std::string& m){ log(QString::fromStdString(m)); };
+            if (!m_cache->ensure(path.toStdString(), cacheLog)) {
+                log("ERROR: Failed to load graph.");
+                return;
+            }
+            int64_t nodes = m_cache->nodeCount();
+            int64_t edges = m_cache->edgeCount();
+            const auto& edgeList = m_cache->edges();
 
             if (nodes == 0 || edges == 0) {
                 log("ERROR: Empty graph — file may be in an unsupported format.");
@@ -175,11 +194,24 @@ void AlgorithmRunner::runTriangleCounting(const QString& filePath) {
             // Update properties panel immediately with real graph counts
             Q_EMIT finished(filePath, nodes, edges, 0);
 
-            // Phase 3: triangle counting
-            log("--- Phase: Triangle Counting (TSnap::GetTriads) ---");
-            log("Iterating over all edges and counting closed triangles...");
-            t = Clock::now();
-            int64_t triangles = static_cast<int64_t>(TSnap::GetTriads(Graph));
+            // Phase 4: Chiba-Nishizeki degeneracy-ordered triangle counting O(m*alpha)
+            log("--- Phase: Triangle Counting (Chiba-Nishizeki, O(m·α)) ---");
+            log("Degeneracy ordering + marking — much faster than O(m·√m)...");
+            auto t = Clock::now();
+
+            int progressInterval = std::max(1LL, nodes / 20);
+            int64_t lastReported = 0;
+            auto onProgress = [&](int64_t triSoFar, int64_t nodesDone, int64_t totalNodes) {
+                if (nodesDone - lastReported >= progressInterval) {
+                    lastReported = nodesDone;
+                    int pct = static_cast<int>(100.0 * nodesDone / totalNodes);
+                    log(QString("  %1% done (%2/%3 nodes) — triangles so far: %4")
+                        .arg(pct).arg(nodesDone).arg(totalNodes).arg(triSoFar));
+                }
+            };
+
+            Triangle::Result tcResult = Triangle::countExact(edgeList, onProgress);
+            int64_t triangles = tcResult.numTriangles;
             double ms = elapsedMs(t);
 
             log(QString("Counting complete in %1 ms.").arg(ms, 0, 'f', 1));
@@ -206,43 +238,35 @@ void AlgorithmRunner::runTriangleCounting(const QString& filePath) {
 void AlgorithmRunner::runArboricity(const QString& filePath, int degeneracy) {
     QThreadPool::globalInstance()->start([this, filePath, degeneracy]() {
         try {
-            auto log = [this](const QString &m){ Q_EMIT logRequest(m); };
+            auto log = [this](const QString &m){
+                QString ts = QTime::currentTime().toString("[HH:mm:ss] ");
+                Q_EMIT logRequest(ts + m);
+            };
             auto total = Clock::now();
 
             log("========================================");
-            log("  ARBORICITY ESTIMATION");
+            log("  EXACT ARBORICITY");
             log("========================================");
 
             // Phase 1: format detection / normalization
             QString path = normalizeGraphFile(filePath, log);
             if (path.isEmpty()) return;
 
-            // Phase 2: graph loading
-            log("--- Phase: Graph Loading ---");
-            auto t = Clock::now();
-            PUNGraph Graph = TSnap::LoadEdgeList<PUNGraph>(path.toStdString().c_str(), 0, 1);
-            int64_t nodes = Graph->GetNodes();
-            int64_t edges = Graph->GetEdges();
-            log(QString("Loaded %1 nodes, %2 edges in %3 ms.")
-                    .arg(nodes).arg(edges).arg(elapsedMs(t), 0, 'f', 1));
+            // Phase 2: load graph (uses cache if already loaded)
+            auto cacheLog2 = [&](const std::string& m){ log(QString::fromStdString(m)); };
+            if (!m_cache->ensure(path.toStdString(), cacheLog2)) {
+                log("ERROR: Failed to load graph.");
+                return;
+            }
+            int64_t nodes = m_cache->nodeCount();
+            int64_t edges = m_cache->edgeCount();
+            const auto& edgeList = m_cache->edges();
 
             if (nodes == 0 || edges == 0) {
                 log("ERROR: Empty graph — file may be in an unsupported format.");
                 return;
             }
-
-            // Update properties panel immediately with real graph counts
             Q_EMIT finished(filePath, nodes, edges, 0);
-
-            // Phase 3: build edge list
-            log("--- Phase: Building Edge List ---");
-            t = Clock::now();
-            std::vector<std::pair<int, int>> edgeList;
-            edgeList.reserve(edges);
-            for (TUNGraph::TEdgeI EI = Graph->BegEI(); EI < Graph->EndEI(); EI++)
-                edgeList.push_back({EI.GetSrcNId(), EI.GetDstNId()});
-            log(QString("Edge list built: %1 entries in %2 ms.")
-                    .arg(edgeList.size()).arg(elapsedMs(t), 0, 'f', 1));
 
             if (degeneracy > 0)
                 log(QString("Degeneracy hint provided: %1").arg(degeneracy));
@@ -252,7 +276,7 @@ void AlgorithmRunner::runArboricity(const QString& filePath, int degeneracy) {
             // Phase 4: exact arboricity
             log("--- Phase: Exact Arboricity (Nash-Williams / Goldberg push-relabel) ---");
             log("Running max-flow based forest decomposition...");
-            t = Clock::now();
+            auto t = Clock::now();
 
             auto logger = [this](const std::string& msg) {
                 Q_EMIT logRequest(QString::fromStdString(msg));
@@ -293,7 +317,10 @@ void AlgorithmRunner::runImportanceSamplingEstimation(const QString& filePath,
 
     QThreadPool::globalInstance()->start([this, filePath, T_ref, alpha_ref]() {
         try {
-            auto log = [this](const QString &m){ Q_EMIT logRequest(m); };
+            auto log = [this](const QString &m){
+                QString ts = QTime::currentTime().toString("[HH:mm:ss] ");
+                Q_EMIT logRequest(ts + m);
+            };
             auto total = Clock::now();
 
             log("========================================");
@@ -307,21 +334,20 @@ void AlgorithmRunner::runImportanceSamplingEstimation(const QString& filePath,
             QString path = normalizeGraphFile(filePath, log);
             if (path.isEmpty()) return;
 
-            // Phase 2: graph loading
-            log("--- Phase: Graph Loading ---");
-            auto t = Clock::now();
-            PUNGraph Graph = TSnap::LoadEdgeList<PUNGraph>(path.toStdString().c_str(), 0, 1);
-            int64_t m = Graph->GetEdges();
-            int64_t n = Graph->GetNodes();
-            log(QString("Loaded %1 nodes, %2 edges in %3 ms.")
-                    .arg(n).arg(m).arg(elapsedMs(t), 0, 'f', 1));
+            // Phase 2: load graph (uses cache if already loaded)
+            auto cacheLog3 = [&](const std::string& msg){ log(QString::fromStdString(msg)); };
+            if (!m_cache->ensure(path.toStdString(), cacheLog3)) {
+                log("ERROR: Failed to load graph.");
+                return;
+            }
+            int64_t n = m_cache->nodeCount();
+            int64_t m = m_cache->edgeCount();
+            const auto& edgeList = m_cache->edges();
 
             if (n == 0 || m == 0) {
                 log("ERROR: Empty graph — file may be in an unsupported format.");
                 return;
             }
-
-            // Update properties panel immediately with real graph counts
             Q_EMIT finished(filePath, n, m, 0);
 
             // Phase 3: compute sampling budget
@@ -338,24 +364,14 @@ void AlgorithmRunner::runImportanceSamplingEstimation(const QString& filePath,
             log(QString("  Sampling %1 edges out of %2 total (%3%)")
                     .arg(r).arg(m).arg(100.0 * r / m, 0, 'f', 1));
 
-            // Phase 4: build edge list
-            log("--- Phase: Building Edge List ---");
-            t = Clock::now();
-            std::vector<std::pair<int,int>> edgeList;
-            edgeList.reserve(m);
-            for (auto EI = Graph->BegEI(); EI < Graph->EndEI(); EI++)
-                edgeList.push_back({EI.GetSrcNId(), EI.GetDstNId()});
-            log(QString("Edge list built: %1 entries in %2 ms.")
-                    .arg(edgeList.size()).arg(elapsedMs(t), 0, 'f', 1));
-
-            // Phase 5: uniform edge sampling + common neighbour counting
+            // Phase 4: uniform edge sampling + common neighbour counting
             log("--- Phase: Uniform Edge Sampling ---");
             log(QString("Drawing %1 edges uniformly at random...").arg(r));
             log("For each sampled edge (u,v): counting common neighbours (triangles).");
-            t = Clock::now();
+            auto t = Clock::now();
 
             std::mt19937 gen(std::random_device{}());
-            std::uniform_int_distribution<int64_t> dis(0, m - 1);
+            std::uniform_int_distribution<int64_t> dis(0, (int64_t)edgeList.size() - 1);
 
             int64_t triangleWeightSum = 0;
             int64_t lastBucket = -1;
@@ -363,10 +379,9 @@ void AlgorithmRunner::runImportanceSamplingEstimation(const QString& filePath,
             for (int64_t i = 0; i < r; ++i) {
                 auto [u, v] = edgeList[dis(gen)];
                 int common = 0;
-                auto NIu = Graph->GetNI(u);
-                for (int j = 0; j < NIu.GetDeg(); ++j) {
-                    int w = NIu.GetNbrNId(j);
-                    if (Graph->IsEdge(v, w)) common++;
+                // Use cached adjacency list instead of SNAP graph
+                for (int w : m_cache->neighbors(u)) {
+                    if (m_cache->hasEdge(v, w)) common++;
                 }
                 triangleWeightSum += common;
 
