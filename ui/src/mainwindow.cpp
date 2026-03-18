@@ -399,10 +399,15 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::handleLogMessage);
     connect(m_snapBrowser, &SnapBrowserWidget::datasetMetadataLoaded,
             this, [this](const QString &name, int64_t, int64_t, int64_t triangles) {
-        m_pendingSnapName      = name;
-        m_pendingSnapUrl       = QUrl("https://snap.stanford.edu/data/" + name + ".txt.gz");
-        if (m_pendingSnapTriangles <= 0 && triangles > 0)
-            m_pendingSnapTriangles = triangles;
+        // Reset all pipeline state for the new dataset
+        m_pendingSnapName         = name;
+        m_pendingSnapUrl          = QUrl("https://snap.stanford.edu/data/" + name + ".txt.gz");
+        m_pendingSnapTriangles    = (triangles > 0) ? triangles : 0;
+        m_pendingSnapArboricity   = 0.0;
+        m_lastExactTriangles      = 0;
+        m_lastEstimatedTriangles  = 0;
+        m_pipelineFilePath.clear();
+        m_pipelineNeedTriangles   = false;
         m_editFilePath->clear();
     });
 
@@ -636,8 +641,12 @@ void MainWindow::runAlgorithmOnFile(const QString &filePath) {
 void MainWindow::handleRunClicked() {
     m_textLog->clear();
     m_runStartMs = QDateTime::currentMSecsSinceEpoch();
-    m_lastExactTriangles = 0;
-    m_lastEstimatedTriangles = 0;
+    m_lastExactTriangles      = 0;
+    m_lastEstimatedTriangles  = 0;
+    m_pendingSnapArboricity   = 0.0;
+    m_pendingSnapTriangles    = 0;
+    m_pipelineFilePath.clear();
+    m_pipelineNeedTriangles   = false;
 
     QString localPath = m_editFilePath->text();
     if (!localPath.isEmpty()) {
