@@ -1,147 +1,50 @@
 cmake_minimum_required(VERSION 3.16)
+
+# 1. FORCE vcpkg STATIC
+if(WIN32)
+    set(VCPKG_TARGET_TRIPLET x64-windows-static-md CACHE STRING "")
+    set(CMAKE_IGNORE_PATH "C:/Qt/6.8.3/msvc2022_64")
+    set(CMAKE_PREFIX_PATH "C:/vcpkg/installed/x64-windows-static-md")
+    # Matches the vcpkg default runtime (Dynamic CRT)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
 project(GraphAnalyzer VERSION 1.0.0)
 
-# ------------------------------------------------------------------
-# Cross-platform search paths (Windows only)
-# ------------------------------------------------------------------
-if(WIN32)
-    list(APPEND CMAKE_PREFIX_PATH
-            "C:/Qt/6.8.3/msvc2022_64"
-            "C:/vcpkg/installed/x64-windows"
-    )
-    set(ZLIB_INCLUDE_DIR "C:/vcpkg/installed/x64-windows/include" CACHE PATH "")
-    set(ZLIB_LIBRARY     "C:/vcpkg/installed/x64-windows/lib/zlib.lib" CACHE FILEPATH "")
-endif()
-
-# ------------------------------------------------------------------
-# FIX: Increase MSVC Compiler Heap Space
-# ------------------------------------------------------------------
+# 2. GLOBAL COMPILER FIXES
 if(MSVC)
-    # Give the compiler 200% of the default memory to prevent C1060
-    add_compile_options(/Zm200)
+    add_compile_options(/Zm200 /bigobj)
+    # FIX FOR C2589: Disables Windows min/max macros to allow std::numeric_limits
+    add_definitions(-DNOMINMAX)
 endif()
 
-# ------------------------------------------------------------------
-# C++ standard & Qt auto tools
-# ------------------------------------------------------------------
-if(WIN32)
-    set(CMAKE_CXX_STANDARD 17)
-else()
-    set(CMAKE_CXX_STANDARD 23)
-endif()
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
-
-set(CMAKE_CXX_STANDARD_LATEST OFF CACHE BOOL "" FORCE)
-
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
-# ------------------------------------------------------------------
-# Find Qt6
-# ------------------------------------------------------------------
-find_package(Qt6 REQUIRED COMPONENTS Widgets Network)
-
-if(WIN32)
-    foreach(_qt_target Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network)
-        if(TARGET ${_qt_target})
-            set_target_properties(${_qt_target} PROPERTIES
-                    INTERFACE_COMPILE_FEATURES ""
-            )
-        endif()
-    endforeach()
-endif()
-
-# ------------------------------------------------------------------
-# Find ZLIB
-# ------------------------------------------------------------------
+# 3. Find Qt6 & ZLIB
+find_package(Qt6 REQUIRED COMPONENTS Widgets Network Gui Core EntryPointPrivate)
 find_package(ZLIB REQUIRED)
 
-# ------------------------------------------------------------------
-# Download SNAP source using FetchContent
-# ------------------------------------------------------------------
+# 4. Setup SNAP (Source-based)
 include(FetchContent)
-
-set(FETCHCONTENT_UPDATES_DISCONNECTED ON CACHE BOOL "Don't git-fetch on reconfigure")
-set(FETCHCONTENT_QUIET OFF)
-
 FetchContent_Declare(
         snap_src
         GIT_REPOSITORY https://github.com/snap-stanford/snap.git
         GIT_TAG        master
 )
 FetchContent_MakeAvailable(snap_src)
-
 set(SNAP_CORE_DIR ${snap_src_SOURCE_DIR}/snap-core)
 
-if(WIN32)
-    add_library(snap STATIC ${SNAP_CORE_DIR}/Snap.cpp)
+add_library(snap STATIC ${SNAP_CORE_DIR}/Snap.cpp)
+target_include_directories(snap PUBLIC
+        ${snap_src_SOURCE_DIR}
+        ${SNAP_CORE_DIR}
+        ${snap_src_SOURCE_DIR}/glib-core
+)
 
-    set_target_properties(snap PROPERTIES
-            CXX_STANDARD 17
-            CXX_STANDARD_REQUIRED ON
-            AUTOMOC OFF AUTOUIC OFF AUTORCC OFF
-    )
-
-    target_include_directories(snap PUBLIC
-            ${snap_src_SOURCE_DIR}
-            ${SNAP_CORE_DIR}
-            ${snap_src_SOURCE_DIR}/glib-core
-            ${snap_src_SOURCE_DIR}/snap-adv
-    )
-
-    target_compile_definitions(snap PUBLIC
-            _USE_MATH_DEFINES
-            NOMINMAX
-            WIN32_LEAN_AND_MEAN
-    )
-
-    target_compile_options(snap PRIVATE
-            /W0 /wd4996 /bigobj /std:c++17 /Zm200
-    )
-
-else()
-    set(SNAP_BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/snap_build)
-    set(SNAP_LIBRARY   ${SNAP_BUILD_DIR}/libsnap-core.a)
-
-    set(SNAP_WARNING_FLAGS
-            -Wno-misleading-indentation
-            -Wno-template-id-cdtor
-            -Wno-unused-but-set-variable
-            -Wno-catch-value
-            -Wno-free-nonheap-object
-            -Wno-alloc-size-larger-than
-            -Wno-class-memaccess
-            -Wno-maybe-uninitialized
-            -Wno-parentheses
-            -Wno-delete-non-virtual-dtor
-            -Wno-mismatched-new-delete
-            -Wno-nonnull
-            -Wno-format-overflow
-    )
-    string(JOIN " " SNAP_WARNING_FLAGS_STR ${SNAP_WARNING_FLAGS})
-
-    add_custom_target(build_snap ALL
-            COMMAND ${CMAKE_COMMAND} -E make_directory ${SNAP_BUILD_DIR}
-            COMMAND ${CMAKE_COMMAND} -E echo "Building SNAP core in ${SNAP_CORE_DIR}"
-            COMMAND ${CMAKE_COMMAND} -E env "CXXFLAGS=${SNAP_WARNING_FLAGS_STR}" make -C ${SNAP_CORE_DIR}
-            COMMAND ar rcs ${SNAP_CORE_DIR}/libsnap-core.a ${SNAP_CORE_DIR}/Snap.o
-            COMMAND ${CMAKE_COMMAND} -E copy ${SNAP_CORE_DIR}/libsnap-core.a ${SNAP_LIBRARY}
-            COMMENT "Building SNAP core library"
-            BYPRODUCTS ${SNAP_LIBRARY}
-            WORKING_DIRECTORY ${SNAP_CORE_DIR}
-    )
-
-    add_library(snap STATIC IMPORTED)
-    set_target_properties(snap PROPERTIES
-            IMPORTED_LOCATION ${SNAP_LIBRARY}
-    )
-endif()
-
-# ------------------------------------------------------------------
-# Source files
-# ------------------------------------------------------------------
+# 5. Source & Header Files
 set(SOURCES
         ui/src/main.cpp
         ui/src/mainwindow.cpp
@@ -159,75 +62,37 @@ set(SOURCES
         algorithms/exact_arboricity/density_algorithm.cpp
 )
 
-set(HEADERS
-        ui/src/mainwindow.h
-        ui/src/graph_list_widget.h
-        ui/src/graph_loader.h
-        ui/src/local_files_widget.h
-        ui/src/algorithm_runner.h
-        ui/src/graph_info.h
-        ui/src/snap_catalog.h
-        ui/src/download_manager.h
-        ui/src/snap_dataset_cache.h
-        ui/src/snap_browser_widget.h
-)
+add_executable(GraphAnalyzer ${SOURCES})
 
-# ------------------------------------------------------------------
-# Executable
-# ------------------------------------------------------------------
-add_executable(GraphAnalyzer ${SOURCES} ${HEADERS})
-
-
-
-if(NOT WIN32)
-    add_dependencies(GraphAnalyzer build_snap)
-endif()
-
-# ------------------------------------------------------------------
-# Include directories
-# ------------------------------------------------------------------
 target_include_directories(GraphAnalyzer PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/ui/src
+        ui/src
+        algorithms/common
+        algorithms/exact_arboricity
+        algorithms/triangle_counting
         ${snap_src_SOURCE_DIR}
         ${SNAP_CORE_DIR}
         ${snap_src_SOURCE_DIR}/glib-core
-        ${snap_src_SOURCE_DIR}/snap-adv
 )
 
-target_include_directories(GraphAnalyzer PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/exact_arboricity
-        ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/triangle_counting
-        ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/common
-)
-
-# ------------------------------------------------------------------
-# Windows: force C++17, fix UNICODE conflict with SNAP headers
-# ------------------------------------------------------------------
-if(WIN32)
-    target_compile_options(GraphAnalyzer PRIVATE /std:c++17)
-
-    set_source_files_properties(
-            ui/src/algorithm_runner.cpp
-            ui/src/snap_browser_widget.cpp
-            ui/src/snap_dataset_cache.cpp
-            algorithms/exact_arboricity/ExactArboricity.cpp
-        algorithms/triangle_counting/TriangleCounting.cpp
-            algorithms/common/GraphCache.cpp
-            algorithms/triangle_counting/TriangleCounting.cpp
-            algorithms/exact_arboricity/ArboricitySolver.cpp
-            algorithms/exact_arboricity/density_algorithm.cpp
-            PROPERTIES COMPILE_OPTIONS "/UUNICODE;/U_UNICODE"
-    )
-endif()
-
-# ------------------------------------------------------------------
-# Link libraries
-# ------------------------------------------------------------------
+# 6. Link Libraries & Static Plugins
+# NOTE: We removed the hardcoded .lib paths that were missing
 target_link_libraries(GraphAnalyzer PRIVATE
         Qt6::Widgets
         Qt6::Network
+        Qt6::Gui
+        Qt6::Core
+        Qt6::EntryPointPrivate
+        Qt6::QWindowsIntegrationPlugin
+        Qt6::QICOPlugin
         ZLIB::ZLIB
         snap
+        # REQUIRED for HTTPS support on Windows without separate plugins
+        Crypt32.lib
+        Secur32.lib
+        Ncrypt.lib
 )
 
-install(TARGETS GraphAnalyzer RUNTIME DESTINATION bin)
+# 7. SNAP Unicode Fix
+if(WIN32)
+    add_definitions(-UUNICODE -U_UNICODE)
+endif()
