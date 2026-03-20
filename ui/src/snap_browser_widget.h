@@ -3,36 +3,52 @@
 
 #include <QWidget>
 #include <QTreeView>
+#include <QLineEdit>
 #include <QPushButton>
 #include <QStandardItemModel>
-#include <QItemSelection>
+#include <QSortFilterProxyModel>
 #include <QUrl>
-#include "download_manager.h"
+#include <QMap>
+#include <QItemSelection>
+
+class DownloadManager;
 
 class SnapBrowserWidget : public QWidget {
     Q_OBJECT
+
 public:
     explicit SnapBrowserWidget(DownloadManager *mgr, QWidget *parent = nullptr);
-    QUrl getUrlForDataset(const QString& filename)const;
-    Q_SIGNALS: // Required by QT_NO_KEYWORDS
-        void datasetMetadataLoaded(const QString &name, int64_t nodes, int64_t edges, int64_t triangles);
-    void logMessage(const QString &message);
-    void downloadRequested(const QString &name, const QUrl &url);
+    ~SnapBrowserWidget() override = default;
+    QUrl getUrlForDataset(const QString& filename) const;
 
-private Q_SLOTS: // Required by QT_NO_KEYWORDS
+signals:
+    void datasetSelected(const QString &name, const QUrl &url, int64_t triangles);
+    void downloadRequested(const QString &name, const QUrl &url);
+    void logMessage(const QString &message);
+    void datasetMetadataLoaded(const QString &name, int64_t nodes, int64_t edges, int64_t triangles);
+
+private slots:
+    void onSearchTextChanged(const QString &text);
+    void handleSelectionChanged(const QItemSelection &selected, const QItemSelection &deselected);
+    void onDoubleClicked(const QModelIndex &proxyIndex);
     void onRefreshClicked();
     void handleCatalogReady(bool success);
-    void handleSelectionChanged(const QItemSelection &selected, const QItemSelection &deselected);
-    void onDoubleClicked(const QModelIndex &index);
+    void handleUrlValidated(const QUrl &url, bool isValid);
 
 private:
+    void loadCache();
+    void saveCache();
+    QString cacheFilePath() const;
     void parseSnapHtml(const QString &html);
-    void parseDeepPage(const QString &html, QStandardItem *item); // For deep visit caching
+    void parseDeepPage(const QString &html, QStandardItem *item);
 
-    QTreeView *datasetView;
-    QStandardItemModel *datasetModel;
-    QPushButton *refreshButton;
-    DownloadManager *downloadManager;
+    DownloadManager* downloadManager;
+    QStandardItemModel* datasetModel;
+    QSortFilterProxyModel* proxyModel;
+    QLineEdit* searchEdit;
+    QTreeView* datasetView;
+    QPushButton* refreshButton;
+    QMap<QString, int64_t> m_trianglesCache;
 };
 
 #endif
