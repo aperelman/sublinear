@@ -83,8 +83,14 @@ void SnapBrowserWidget::handleCatalogReady(bool success) {
 
 void SnapBrowserWidget::parseSnapHtml(const QString &html) {
     datasetModel->removeRows(0, datasetModel->rowCount());
-    QRegularExpression re("<tr.*?>\\s*<td.*?>\\s*<a href=\"(.*?)\">(.*?)</a>\\s*‹\\s*<td.*?>(.*?)‹\\s*<td.*?>(.*?)‹");
-    re.setPatternOptions(QRegularExpression::DotMatchesEverythingOption);
+
+    // Match table rows containing a dataset link plus two data columns (nodes, edges).
+    // The original code used a corrupted '‹' character instead of '</' which caused
+    // zero matches. Fixed to use proper </td> closing tags.
+    QRegularExpression re(
+        "<tr[^>]*>\\s*<td[^>]*>\\s*<a href=\"([^\"]*)\">([^<]+)</a>.*?<td[^>]*>([^<]*)</td>.*?<td[^>]*>([^<]*)</td>",
+        QRegularExpression::DotMatchesEverythingOption
+    );
 
     QRegularExpressionMatchIterator i = re.globalMatch(html);
     while (i.hasNext()) {
@@ -144,7 +150,6 @@ void SnapBrowserWidget::handleSelectionChanged(const QItemSelection &selected, c
                 file.close();
                 QFile::remove(path);
             }
-            // After parsing, triangles are stored in the item and cache.
             int64_t newTriangles = item->data(Qt::UserRole + 3).toLongLong();
             Q_EMIT datasetSelected(name, downloadUrl, newTriangles);
         }
@@ -154,7 +159,11 @@ void SnapBrowserWidget::handleSelectionChanged(const QItemSelection &selected, c
 }
 
 void SnapBrowserWidget::parseDeepPage(const QString &html, QStandardItem *item) {
-    QRegularExpression triRegex("Triangles\\s*‹\\s*<td.*?>(\\d[\\d,]*)‹", QRegularExpression::CaseInsensitiveOption);
+    // Fixed: was using corrupted '‹' instead of '</td>' as closing tag delimiter.
+    QRegularExpression triRegex(
+        "Triangles.*?<td[^>]*>([\\d,]+)</td>",
+        QRegularExpression::DotMatchesEverythingOption | QRegularExpression::CaseInsensitiveOption
+    );
     QRegularExpressionMatch match = triRegex.match(html);
     int64_t triangles = match.hasMatch() ? match.captured(1).replace(",", "").toLongLong() : 0;
     item->setData(qlonglong(triangles), Qt::UserRole + 3);
