@@ -83,7 +83,6 @@ target_link_libraries(GraphAnalyzer PRIVATE
         Qt6::Core
         Qt6::EntryPointPrivate
         Qt6::QWindowsIntegrationPlugin
-        Qt6::QICOPlugin
         ZLIB::ZLIB
         snap
         # REQUIRED for HTTPS support on Windows without separate plugins
