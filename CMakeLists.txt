@@ -18,7 +18,7 @@ if(MSVC)
     add_definitions(-DNOMINMAX)
 endif()
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
@@ -31,8 +31,8 @@ find_package(ZLIB REQUIRED)
 include(FetchContent)
 FetchContent_Declare(
         snap_src
-        GIT_REPOSITORY https://github.com/snap-stanford/snap.git
-        GIT_TAG        master
+        GIT_REPOSITORY https://github.com/aperelman/snap
+        GIT_TAG       compiled-by-clang21
 )
 FetchContent_MakeAvailable(snap_src)
 set(SNAP_CORE_DIR ${snap_src_SOURCE_DIR}/snap-core)
@@ -63,6 +63,9 @@ set(SOURCES
 )
 
 add_executable(GraphAnalyzer ${SOURCES})
+
+# All targets use C++23
+set_target_properties(snap GraphAnalyzer PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIRED ON)
 
 target_include_directories(GraphAnalyzer PRIVATE
         ui/src
