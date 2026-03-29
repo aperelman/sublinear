@@ -1,422 +1,299 @@
 #include "algorithm_runner.h"
-#include <QTime>
-#include "ExactArboricity.h"
+#include "ArboricitySolver.h"
 #include "GraphCache.h"
 #include "TriangleCounting.h"
+#include <QTime>
 #include <QFile>
 #include <QThreadPool>
-#ifdef forever
-#undef forever
-#endif
-#include <Snap.h>
+#include <QMetaObject>
 #include <random>
-#include <vector>
-#include <fstream>
-#include <sstream>
 #include <unordered_map>
+#include <unordered_set>
+#include <cmath>
 #include <algorithm>
-#include <chrono>
+
+QString AlgorithmRunner::normalizeGraphFile(const QString& filePath, std::function<void(const QString&)> log) {
+    QFile file(filePath);
+    if (!file.exists()) {
+        log("Error: File not found: " + filePath);
+        return QString();
+    }
+    return filePath;
+}
 
 AlgorithmRunner::AlgorithmRunner(QObject *parent)
     : QObject(parent)
-    , m_cache(std::make_unique<GraphCache>())
+    , m_cache(std::make_shared<GraphCache>())
+    , m_isDestroyed(std::make_shared<std::atomic<bool>>(false))
 {}
 
-AlgorithmRunner::~AlgorithmRunner() = default;
+AlgorithmRunner::~AlgorithmRunner() {
+    *m_isDestroyed = true;
+}
 
 void AlgorithmRunner::invalidateCache() {
     m_cache->invalidate();
 }
 
-// ---------------------------------------------------------------------------
-// Timing helper
-// ---------------------------------------------------------------------------
-using Clock = std::chrono::steady_clock;
-using TimePoint = std::chrono::time_point<Clock>;
-
-static double elapsedMs(TimePoint start) {
-    return std::chrono::duration<double, std::milli>(Clock::now() - start).count();
-}
-
-// ---------------------------------------------------------------------------
-// Generic graph file normalizer
-// ---------------------------------------------------------------------------
-static QString normalizeGraphFile(const QString &filePath,
-                                  std::function<void(const QString&)> log)
-{
-    log("--- Phase: Format Detection ---");
-    log("Inspecting file: " + filePath);
-
-    std::ifstream in(filePath.toStdString());
-    if (!in.is_open()) {
-        log("ERROR: Cannot open file: " + filePath);
-        return {};
-    }
-
-    std::string peekLine;
-    int skipped = 0;
-    while (std::getline(in, peekLine)) {
-        if (peekLine.empty() || peekLine[0] == '#' || peekLine[0] == '%') { skipped++; continue; }
-        break;
-    }
-    in.seekg(0);
-
-    log(QString("Skipped %1 comment/empty lines. First data line: \"%2\"")
-            .arg(skipped).arg(QString::fromStdString(peekLine).left(80)));
-
-    bool isSrcTgt = (peekLine.rfind("SRC:", 0) == 0 ||
-                     peekLine.rfind("TGT:", 0) == 0);
-
-    bool isNamedEdgeList = false;
-    if (!isSrcTgt) {
-        std::istringstream ss(peekLine);
-        std::string a, b;
-        ss >> a >> b;
-        if (!a.empty() && !b.empty()) {
-            bool aInt = std::all_of(a.begin(), a.end(), [](char c){ return std::isdigit(c) || c == '-'; });
-            bool bInt = std::all_of(b.begin(), b.end(), [](char c){ return std::isdigit(c) || c == '-'; });
-            if (!aInt || !bInt) isNamedEdgeList = true;
-        }
-    }
-
-    if (!isSrcTgt && !isNamedEdgeList) {
-        log("Format: standard integer edge list — no normalization needed.");
-        return filePath;
-    }
-
-    log(isSrcTgt ? "Format: SRC/TGT record style — normalizing to integer edge list..."
-                 : "Format: named edge list — mapping names to integer IDs...");
-
-    auto t0 = Clock::now();
-    std::unordered_map<std::string, int> nameToId;
-    std::vector<std::pair<int,int>> edges;
-    int nextId = 0;
-
-    auto getId = [&](const std::string &name) -> int {
-        auto it = nameToId.find(name);
-        if (it != nameToId.end()) return it->second;
-        nameToId[name] = nextId;
-        return nextId++;
-    };
-
-    std::string line;
-    if (isSrcTgt) {
-        std::string src, tgt;
-        while (std::getline(in, line)) {
-            if (line.rfind("SRC:", 0) == 0) src = line.substr(4);
-            else if (line.rfind("TGT:", 0) == 0) {
-                tgt = line.substr(4);
-                if (!src.empty() && !tgt.empty())
-                    edges.push_back({getId(src), getId(tgt)});
-            }
-        }
-    } else {
-        while (std::getline(in, line)) {
-            if (line.empty() || line[0] == '#' || line[0] == '%') continue;
-            std::istringstream ss(line);
-            std::string a, b;
-            if (ss >> a >> b)
-                edges.push_back({getId(a), getId(b)});
-        }
-    }
-
-    if (edges.empty()) {
-        log("ERROR: No edges found after parsing — check file format.");
-        return {};
-    }
-
-    // Deduplicate for undirected graph: normalise each edge so u < v,
-    // then remove duplicates (handles both (u,v) and (v,u) in directed input,
-    // and also removes self-loops where u == v).
-    for (auto &[u, v] : edges)
-        if (u > v) std::swap(u, v);
-
-    std::sort(edges.begin(), edges.end());
-    edges.erase(std::unique(edges.begin(), edges.end()), edges.end());
-    // Remove self-loops
-    edges.erase(std::remove_if(edges.begin(), edges.end(),
-        [](const std::pair<int,int> &e){ return e.first == e.second; }),
-        edges.end());
-
-    log(QString("Normalization: %1 unique undirected edges, %2 unique nodes in %3 ms.")
-            .arg(edges.size()).arg(nameToId.size()).arg(elapsedMs(t0), 0, 'f', 1));
-
-    QString tmpPath = filePath + ".normalized.txt";
-    std::ofstream out(tmpPath.toStdString());
-    if (!out.is_open()) {
-        log("ERROR: Cannot write temp file: " + tmpPath);
-        return {};
-    }
-    out << "# Normalized edge list\n";
-    for (auto &[u, v] : edges)
-        out << u << " " << v << "\n";
-    out.close();
-
-    log("Normalization complete → " + tmpPath);
-    return tmpPath;
-}
-
-// ---------------------------------------------------------------------------
-// Exact Triangle Counting
-// ---------------------------------------------------------------------------
 void AlgorithmRunner::runTriangleCounting(const QString& filePath) {
-    QThreadPool::globalInstance()->start([this, filePath]() {
-        try {
-            auto log = [this](const QString &m){
-                QString ts = QTime::currentTime().toString("[HH:mm:ss] ");
-                Q_EMIT logRequest(ts + m);
-            };
-            auto total = Clock::now();
-
-            log("========================================");
-            log("  EXACT TRIANGLE COUNTING");
-            log("========================================");
-
-            // Phase 1: format detection / normalization
-            QString path = normalizeGraphFile(filePath, log);
-            if (path.isEmpty()) return;
-
-            // Phase 2: load graph (uses cache if already loaded)
-            auto cacheLog = [&](const std::string& m){ log(QString::fromStdString(m)); };
-            if (!m_cache->ensure(path.toStdString(), cacheLog)) {
-                log("ERROR: Failed to load graph.");
-                return;
-            }
-            int64_t nodes = m_cache->nodeCount();
-            int64_t edges = m_cache->edgeCount();
-            const auto& edgeList = m_cache->edges();
-
-            if (nodes == 0 || edges == 0) {
-                log("ERROR: Empty graph — file may be in an unsupported format.");
-                return;
-            }
-
-            // Update properties panel immediately with real graph counts
-            Q_EMIT finished(filePath, nodes, edges, 0);
-
-            // Phase 4: Chiba-Nishizeki degeneracy-ordered triangle counting O(m*alpha)
-            log("--- Phase: Triangle Counting (Chiba-Nishizeki, O(m·α)) ---");
-            log("Degeneracy ordering + marking — much faster than O(m·√m)...");
-            auto t = Clock::now();
-
-            int progressInterval = std::max(1LL, nodes / 20);
-            int64_t lastReported = 0;
-            auto onProgress = [&](int64_t triSoFar, int64_t nodesDone, int64_t totalNodes) {
-                if (nodesDone - lastReported >= progressInterval) {
-                    lastReported = nodesDone;
-                    int pct = static_cast<int>(100.0 * nodesDone / totalNodes);
-                    log(QString("  %1% done (%2/%3 nodes) — triangles so far: %4")
-                        .arg(pct).arg(nodesDone).arg(totalNodes).arg(triSoFar));
-                }
-            };
-
-            Triangle::Result tcResult = Triangle::countExact(edgeList, onProgress);
-            int64_t triangles = tcResult.numTriangles;
-            double ms = elapsedMs(t);
-
-            log(QString("Counting complete in %1 ms.").arg(ms, 0, 'f', 1));
-            log("----------------------------------------");
-            log(QString("RESULT  triangles : %1").arg(triangles));
-            log(QString("        nodes     : %1").arg(nodes));
-            log(QString("        edges     : %1").arg(edges));
-            log(QString("Total elapsed     : %1 ms").arg(elapsedMs(total), 0, 'f', 1));
-            log("========================================");
-
-            // Update properties panel with final triangle count
-            Q_EMIT finished(filePath, nodes, edges, triangles);
-
-            if (path != filePath) QFile::remove(path);
-        } catch (const std::exception& e) {
-            Q_EMIT logRequest(QString("Error: %1").arg(e.what()));
+    auto cache = m_cache;
+    auto destroyed = m_isDestroyed;
+    QThreadPool::globalInstance()->start([this, filePath, cache, destroyed]() {
+        auto log = [&](const QString &m){
+            if (*destroyed) return;
+            QString msg = QTime::currentTime().toString("[HH:mm:ss] ") + m;
+            QMetaObject::invokeMethod(this, [this, msg](){ Q_EMIT logMessage(msg); }, Qt::QueuedConnection);
+        };
+        QString path = normalizeGraphFile(filePath, log);
+        if (path.isEmpty() || *destroyed) return;
+        if (!cache->ensure(path.toStdString(), [&](const std::string& m){ log(QString::fromStdString(m)); })) return;
+        Triangle::Result result = Triangle::countExact(cache->edges());
+        log(QString("  Threads used: %1").arg(result.numThreads));
+        if (!*destroyed) {
+            QString fp = filePath;
+            int64_t nodes = cache->nodeCount();
+            int64_t edges = cache->edgeCount();
+            int64_t triangles = result.numTriangles;
+            QMetaObject::invokeMethod(this, [this, fp, nodes, edges, triangles](){
+                Q_EMIT finished(fp, nodes, edges, triangles);
+            }, Qt::QueuedConnection);
         }
     });
 }
 
-// ---------------------------------------------------------------------------
-// Exact Arboricity
-// ---------------------------------------------------------------------------
-void AlgorithmRunner::runArboricity(const QString& filePath, int degeneracy) {
-    QThreadPool::globalInstance()->start([this, filePath, degeneracy]() {
-        try {
-            auto log = [this](const QString &m){
-                QString ts = QTime::currentTime().toString("[HH:mm:ss] ");
-                Q_EMIT logRequest(ts + m);
-            };
-            auto total = Clock::now();
+void AlgorithmRunner::runArboricity(const QString& filePath, int /*degeneracy*/) {
+    auto cache = m_cache;
+    auto destroyed = m_isDestroyed;
+    QThreadPool::globalInstance()->start([this, filePath, cache, destroyed]() {
+        auto log = [&](const QString &m){
+            if (*destroyed) return;
+            QString msg = QTime::currentTime().toString("[HH:mm:ss] ") + m;
+            QMetaObject::invokeMethod(this, [this, msg](){ Q_EMIT logMessage(msg); }, Qt::QueuedConnection);
+        };
+        QString path = normalizeGraphFile(filePath, log);
+        if (path.isEmpty() || *destroyed) return;
+        if (!cache->ensure(path.toStdString(), [&](const std::string& m){ log(QString::fromStdString(m)); })) return;
 
-            log("========================================");
-            log("  EXACT ARBORICITY");
-            log("========================================");
+        // Build solver from cached edges
+        const auto& edges   = cache->edges();
+        const int   numNodes = static_cast<int>(cache->nodeCount());
 
-            // Phase 1: format detection / normalization
-            QString path = normalizeGraphFile(filePath, log);
-            if (path.isEmpty()) return;
+        ArboricitySolver solver(numNodes);
+        for (const auto& [u, v] : edges)
+            solver.addEdge(u, v);
 
-            // Phase 2: load graph (uses cache if already loaded)
-            auto cacheLog2 = [&](const std::string& m){ log(QString::fromStdString(m)); };
-            if (!m_cache->ensure(path.toStdString(), cacheLog2)) {
-                log("ERROR: Failed to load graph.");
-                return;
+        int arboricity = solver.computeExact(
+            nullptr,  // progress callback — ArboricitySolver logs internally
+            [&](const std::string& m) {
+                log(QString::fromStdString(m));
             }
-            int64_t nodes = m_cache->nodeCount();
-            int64_t edges = m_cache->edgeCount();
-            const auto& edgeList = m_cache->edges();
+        );
 
-            if (nodes == 0 || edges == 0) {
-                log("ERROR: Empty graph — file may be in an unsupported format.");
-                return;
-            }
-            Q_EMIT finished(filePath, nodes, edges, 0);
+        if (!*destroyed) {
+            QString fp   = filePath;
+            int64_t nodes = cache->nodeCount();
+            int64_t edgeCount = cache->edgeCount();
+            double  arb  = static_cast<double>(arboricity);
+            QMetaObject::invokeMethod(this, [this, fp, nodes, edgeCount, arb](){
+                if (arb <= 0)
+                    Q_EMIT arboricityFailedZero();
+                else
+                    Q_EMIT arboricityCalculated(arb);
+                Q_EMIT finished(fp, nodes, edgeCount, 0);
+            }, Qt::QueuedConnection);
+        }
+    });
+}
 
-            if (degeneracy > 0)
-                log(QString("Degeneracy hint provided: %1").arg(degeneracy));
-            else
-                log("No degeneracy hint — algorithm will compute it automatically.");
+void AlgorithmRunner::runImportanceSamplingEstimation(const QString& filePath, int64_t T_ref, double alpha_ref) {
+    auto cache = m_cache;
+    auto destroyed = m_isDestroyed;
+    QThreadPool::globalInstance()->start([this, filePath, T_ref, alpha_ref, cache, destroyed]() {
+        auto log = [&](const QString &m){
+            if (*destroyed) return;
+            QString msg = QTime::currentTime().toString("[HH:mm:ss] ") + m;
+            QMetaObject::invokeMethod(this, [this, msg](){ Q_EMIT logMessage(msg); }, Qt::QueuedConnection);
+        };
 
-            // Phase 4: exact arboricity
-            log("--- Phase: Exact Arboricity (Nash-Williams / Goldberg push-relabel) ---");
-            log("Running max-flow based forest decomposition...");
-            auto t = Clock::now();
+        QString path = normalizeGraphFile(filePath, log);
+        if (path.isEmpty() || *destroyed) return;
+        if (!cache->ensure(path.toStdString(), [&](const std::string& m){ log(QString::fromStdString(m)); })) return;
 
-            auto logger = [this](const std::string& msg) {
-                Q_EMIT logRequest(QString::fromStdString(msg));
-            };
-            ArboricityOutput out = ExactArboricity::compute(edgeList, degeneracy, logger);
+        const auto& edges = cache->edges();
+        const int64_t m   = cache->edgeCount();
+        const int64_t n   = cache->nodeCount();
 
-            log(QString("Arboricity computation complete in %1 ms.").arg(elapsedMs(t), 0, 'f', 1));
-            log("----------------------------------------");
-            if (out.arboricity > 0) {
-                log(QString("RESULT  arboricity : %1").arg(out.arboricity));
-                log(QString("Total elapsed      : %1 ms").arg(elapsedMs(total), 0, 'f', 1));
+        log("========================================");
+        log("  IMPORTANCE SAMPLING — TRIANGLE ESTIMATION");
+        log("  (Eden-Ron-Seshadhri two-phase algorithm)");
+        log("========================================");
+        log(QString("  Nodes: %1   Edges: %2").arg(n).arg(m));
+        log(QString("  T_ref: %1   alpha: %2").arg(T_ref).arg(alpha_ref, 0, 'f', 3));
+
+        if (m == 0) { log("ERROR: Empty graph."); return; }
+
+        // ----------------------------------------------------------------
+        // Phase 1: Uniform edge sparsification
+        // Keep each edge with probability p = r/m.
+        // r = max(ERS formula C=50, 20% floor).
+        // ----------------------------------------------------------------
+        const double C    = 50.0;
+        const double t_cb = std::pow((double)std::max(T_ref, (int64_t)1), 1.0 / 3.0);
+        const double a_cb = std::pow(std::max(alpha_ref, 1.0),            2.0 / 3.0);
+        int64_t r_formula = (int64_t)std::ceil(C * (double)m / (t_cb * a_cb));
+        int64_t r_min     = std::max((int64_t)1000, (int64_t)(0.20 * (double)m));
+        int64_t r         = std::clamp(std::max(r_formula, r_min), (int64_t)1, m);
+        double  p         = (double)r / (double)m;
+
+        log("--- Phase 1: Edge Sparsification ---");
+        log(QString("  Formula r=%1  floor r=%2  using r=%3  (p=%4)")
+                .arg(r_formula).arg(r_min).arg(r).arg(p, 0, 'f', 4));
+
+        std::mt19937_64 rng(std::random_device{}());
+        std::uniform_real_distribution<double> uni(0.0, 1.0);
+
+        std::vector<std::pair<int,int>> R;
+        R.reserve(r);
+        for (const auto& e : edges)
+            if (uni(rng) < p)
+                R.push_back(e);
+
+        log(QString("  |R| = %1 edges sampled").arg((int64_t)R.size()));
+        if (R.empty()) { log("WARNING: R is empty. Aborting."); return; }
+
+        // ----------------------------------------------------------------
+        // Build degree map and adjacency list on R
+        // ----------------------------------------------------------------
+        std::unordered_map<int,int> degR;
+        degR.reserve(R.size() * 2);
+        for (const auto& e : R) { degR[e.first]++; degR[e.second]++; }
+
+        std::unordered_map<int, std::vector<int>> adjR;
+        adjR.reserve(R.size() * 2);
+        for (const auto& e : R) {
+            adjR[e.first].push_back(e.second);
+            adjR[e.second].push_back(e.first);
+        }
+
+        // Full-graph adjacency SET for O(1) closure checks
+        // Store both directions so lookup works regardless of edge orientation.
+        // The /2 factor in the estimator corrects for double-counting.
+        std::unordered_map<int, std::unordered_set<int>> adjFull;
+        adjFull.reserve(n);
+        for (const auto& e : edges) {
+            adjFull[e.first].insert(e.second);
+            adjFull[e.second].insert(e.first);
+        }
+
+        // ----------------------------------------------------------------
+        // Phase 2: Uniform wedge sampling from R, closure check in G
+        //
+        // w(e) = (deg_R(u)-1) + (deg_R(v)-1)  = wedge count through e in R
+        // W(R) = sum of w(e)
+        //
+        // Sample a wedge uniformly from R:
+        //   1. Pick edge e=(u,v) w.p. w(e)/W(R)
+        //   2. Pick center c in {u,v} w.p. (deg_R(c)-1) / w(e)
+        //   3. Pick tip t uniformly from N_R(center) \ {other}
+        //   4. Check if (other--tip) is an edge in the FULL graph G
+        //
+        // Estimator:
+        //   Wedge (center; other, tip) from R closes in G iff triangle exists.
+        //   A triangle (a,b,c) contributes to closing when:
+        //     - 2 of its edges are in R (the wedge), checked via W(R)
+        //     - 3rd edge checked in G (always present if triangle exists)
+        //   Each triangle has 3 such wedges, each surviving with prob p^2.
+        //   E[closing/s] = 3 * T * p^2 / W(R)
+        //   => T_hat = (closing/s) * W(R) / (3 * p^2)
+        // ----------------------------------------------------------------
+        log("--- Phase 2: Wedge Sampling ---");
+
+        std::vector<double> weights;
+        weights.reserve(R.size());
+        double W_R = 0.0;
+        for (const auto& e : R) {
+            double w = (double)(std::max(degR[e.first],  1) - 1)
+                     + (double)(std::max(degR[e.second], 1) - 1);
+            weights.push_back(w);
+            W_R += w;
+        }
+
+        log(QString("  W(R) = %1").arg(W_R, 0, 'f', 0));
+        if (W_R == 0.0) { log("WARNING: No wedges in R. Aborting."); return; }
+
+        const int64_t s = r * 5;
+        int64_t closing = 0;
+
+        std::discrete_distribution<int64_t> edgeDist(weights.begin(), weights.end());
+
+        for (int64_t i = 0; i < s; ++i) {
+            int64_t idx = edgeDist(rng);
+            int u = R[idx].first, v = R[idx].second;
+
+            int wu = std::max(degR[u], 1) - 1;
+            int wv = std::max(degR[v], 1) - 1;
+            int total_uv = wu + wv;
+            if (total_uv <= 0) continue;
+
+            // Pick center proportional to (deg_R(c) - 1)
+            int center, other;
+            if (std::uniform_int_distribution<int>(0, total_uv - 1)(rng) < wu) {
+                center = u; other = v;
             } else {
-                log("WARNING: Arboricity computation returned 0.");
+                center = v; other = u;
             }
-            log("========================================");
 
-            if (path != filePath) QFile::remove(path);
+            // Pick tip from N_R(center) \ {other} — single-pass, no bias
+            const auto& nbrs = adjR[center];
+            int validCount = (int)nbrs.size() - 1;
+            if (validCount <= 0) continue;
 
-            if (out.arboricity <= 0) Q_EMIT arboricityFailedZero();
-            else Q_EMIT arboricityFinished(out.arboricity);
+            int tipIdx = std::uniform_int_distribution<int>(0, validCount - 1)(rng);
+            int tip = -1, seen = 0;
+            for (int nb : nbrs) {
+                if (nb == other) continue;
+                if (seen == tipIdx) { tip = nb; break; }
+                ++seen;
+            }
+            if (tip == -1) continue;
 
-        } catch (...) {
-            Q_EMIT logRequest("Error processing arboricity.");
+            // Check closure in FULL graph G (not R)
+            auto it = adjFull.find(other);
+            if (it != adjFull.end() && it->second.count(tip))
+                ++closing;
         }
-    });
-}
 
-// ---------------------------------------------------------------------------
-// Importance Sampling Triangle Estimation
-// ---------------------------------------------------------------------------
-void AlgorithmRunner::runImportanceSamplingEstimation(const QString& filePath,
-                                                       int64_t T_ref,
-                                                       double alpha_ref) {
-    if (T_ref <= 0) {
-        Q_EMIT logRequest("ABORT: Reference Triangle Count is 0. Run Exact Triangle Counting first.");
-        return;
-    }
+        // Estimator derivation:
+        // Each triangle {a,b,c} generates 6 ORDERED closing wedges in W(R):
+        //   (b,a,c), (c,a,b), (a,b,c), (c,b,a), (a,c,b), (b,c,a)
+        // Each survives into R with prob p^2 (both edges needed).
+        // E[closing/s] = 6 * T * p^2 / W(R)
+        // => T_hat = (closing/s) * W(R) / (6 * p^2)
+        double T_hat = ((double)closing / (double)s)
+                     * W_R
+                     / (6.0 * p * p);
 
-    QThreadPool::globalInstance()->start([this, filePath, T_ref, alpha_ref]() {
-        try {
-            auto log = [this](const QString &m){
-                QString ts = QTime::currentTime().toString("[HH:mm:ss] ");
-                Q_EMIT logRequest(ts + m);
-            };
-            auto total = Clock::now();
+        log(QString("  Wedge samples s=%1  Closing=%2").arg(s).arg(closing));
+        log(QString("  T_hat = %1").arg((int64_t)std::llround(T_hat)));
 
-            log("========================================");
-            log("  IMPORTANCE SAMPLING — TRIANGLE ESTIMATION");
-            log("========================================");
-            log(QString("Input parameters:"));
-            log(QString("  T_ref (reference triangle count) = %1").arg(T_ref));
-            log(QString("  alpha (arboricity)               = %1").arg(alpha_ref));
+        if (T_ref > 0) {
+            double ratio = T_hat / (double)T_ref;
+            double err   = (ratio - 1.0) * 100.0;
+            QString arrow = (ratio >= 1.0) ? "▲" : "▼";
+            QString color = (std::abs(err) < 20.0) ? "#1e8449" : "#c0392b";
+            log(QString("<font color='%1'>  %2 T_hat/T_exact = %3  (error = %4%)</font>")
+                    .arg(color).arg(arrow)
+                    .arg(ratio, 0, 'f', 4)
+                    .arg(std::abs(err), 0, 'f', 1));
+        }
+        log("========================================");
 
-            // Phase 1: format detection / normalization
-            QString path = normalizeGraphFile(filePath, log);
-            if (path.isEmpty()) return;
-
-            // Phase 2: load graph (uses cache if already loaded)
-            auto cacheLog3 = [&](const std::string& msg){ log(QString::fromStdString(msg)); };
-            if (!m_cache->ensure(path.toStdString(), cacheLog3)) {
-                log("ERROR: Failed to load graph.");
-                return;
-            }
-            int64_t n = m_cache->nodeCount();
-            int64_t m = m_cache->edgeCount();
-            const auto& edgeList = m_cache->edges();
-
-            if (n == 0 || m == 0) {
-                log("ERROR: Empty graph — file may be in an unsupported format.");
-                return;
-            }
-            Q_EMIT finished(filePath, n, m, 0);
-
-            // Phase 3: compute sampling budget
-            log("--- Phase: Sampling Budget Calculation ---");
-            const double eps = 0.1;
-            double t_prime = std::max(1.0, 0.1 * static_cast<double>(T_ref));
-            int64_t r = static_cast<int64_t>((m * alpha_ref) / (eps * t_prime));
-            if (r > m) r = m;
-            if (r <= 0) r = 1;
-            log(QString("  epsilon (eps)      = %1").arg(eps));
-            log(QString("  t' = 0.1 * T_ref   = %1").arg(t_prime));
-            log(QString("  r  = (m*alpha)/(eps*t') = (%1 * %2) / (%3 * %4) = %5")
-                    .arg(m).arg(alpha_ref).arg(eps).arg(t_prime).arg(r));
-            log(QString("  Sampling %1 edges out of %2 total (%3%)")
-                    .arg(r).arg(m).arg(100.0 * r / m, 0, 'f', 1));
-
-            // Phase 4: uniform edge sampling + common neighbour counting
-            log("--- Phase: Uniform Edge Sampling ---");
-            log(QString("Drawing %1 edges uniformly at random...").arg(r));
-            log("For each sampled edge (u,v): counting common neighbours (triangles).");
-            auto t = Clock::now();
-
-            std::mt19937 gen(std::random_device{}());
-            std::uniform_int_distribution<int64_t> dis(0, (int64_t)edgeList.size() - 1);
-
-            int64_t triangleWeightSum = 0;
-            int64_t lastBucket = -1;
-
-            for (int64_t i = 0; i < r; ++i) {
-                auto [u, v] = edgeList[dis(gen)];
-                int common = 0;
-                // Use cached adjacency list instead of SNAP graph
-                for (int w : m_cache->neighbors(u)) {
-                    if (m_cache->hasEdge(v, w)) common++;
-                }
-                triangleWeightSum += common;
-
-                // Progress every 10%
-                int64_t bucket = (i * 10) / r;
-                if (bucket != lastBucket) {
-                    lastBucket = bucket;
-                    log(QString("  %1% done (%2/%3 samples) — cumulative weight = %4")
-                            .arg(bucket * 10).arg(i).arg(r).arg(triangleWeightSum));
-                }
-            }
-
-            log(QString("Sampling complete in %1 ms.").arg(elapsedMs(t), 0, 'f', 1));
-
-            // Phase 6: final estimate
-            log("--- Phase: Final Estimate ---");
-            double estimate = static_cast<double>(triangleWeightSum) *
-                              (static_cast<double>(m) / static_cast<double>(r)) / 3.0;
-            log(QString("  Triangle weight sum        = %1").arg(triangleWeightSum));
-            log(QString("  Scale factor m/r           = %1/%2 = %3")
-                    .arg(m).arg(r).arg(static_cast<double>(m)/r, 0, 'f', 4));
-            log("  Divide by 3 (each triangle is counted once per edge)");
-            log("----------------------------------------");
-            log(QString("RESULT  estimated triangles : %1").arg(static_cast<int64_t>(estimate)));
-            log(QString("        reference T_ref     : %1").arg(T_ref));
-            log(QString("        ratio est/ref       : %1")
-                    .arg(static_cast<double>(estimate) / T_ref, 0, 'f', 3));
-            log(QString("Total elapsed               : %1 ms").arg(elapsedMs(total), 0, 'f', 1));
-            log("========================================");
-
-            Q_EMIT finished(filePath, n, m, static_cast<int64_t>(estimate));
-
-            if (path != filePath) QFile::remove(path);
-        } catch (const std::exception& e) {
-            Q_EMIT logRequest(QString("Error: %1").arg(e.what()));
+        if (!*destroyed) {
+            QString fp  = filePath;
+            int64_t est = (int64_t)std::llround(T_hat);
+            QMetaObject::invokeMethod(this, [this, fp, n, m, est](){
+                Q_EMIT finished(fp, n, m, est);
+            }, Qt::QueuedConnection);
         }
     });
 }
