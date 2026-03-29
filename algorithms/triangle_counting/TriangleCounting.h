@@ -1,20 +1,33 @@
 #ifndef TRIANGLE_COUNTING_H
 #define TRIANGLE_COUNTING_H
 
-#include <string>
 #include <vector>
-#include <map>
+#include <utility>
+#include <cstdint>
 
 namespace Triangle {
 
-    struct GraphAnalysisResult {
-        size_t numNodes;    // Changed from 'nodes' to 'numNodes'
-        size_t numEdges;    // Changed from 'edges' to 'numEdges'
-        size_t numTriangles; // Changed from 'triangles' to 'numTriangles'
-    };
+struct Result {
+    int64_t numNodes;
+    int64_t numEdges;
+    int64_t numTriangles;
+    int     numThreads = 1;  // actual OpenMP threads used
+};
 
-    std::map<int, std::vector<int>> loadGraph(const std::string& filename);
-    GraphAnalysisResult analyzeAndCount(const std::map<int, std::vector<int>>& adj, double delta);
-}
+/**
+ * Exact triangle counting using the Chiba-Nishizeki degeneracy-ordered algorithm.
+ * Parallelized with OpenMP. Uses hybrid marking/intersection/binary-search strategy.
+ *
+ * Reference: Chiba & Nishizeki, "Arboricity and Subgraph Listing Algorithms",
+ *            SIAM J. Comput. 14(1), 1985.
+ *
+ * @param edges  Edge list as pairs of node IDs (arbitrary, non-contiguous IDs ok)
+ * @return       Result struct with node/edge/triangle counts and thread count
+ */
+Result countExact(
+    const std::vector<std::pair<int,int>>& edges
+);
 
-#endif
+} // namespace Triangle
+
+#endif // TRIANGLE_COUNTING_H
