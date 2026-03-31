@@ -1,12 +1,13 @@
 cmake_minimum_required(VERSION 3.16)
 
-# 1. FORCE vcpkg STATIC
+# 1. vcpkg integration — must be set BEFORE project()
 if(WIN32)
-    set(VCPKG_TARGET_TRIPLET x64-windows-static-md CACHE STRING "")
+    set(VCPKG_TARGET_TRIPLET "x64-windows-static-mt" CACHE STRING "")
+    set(CMAKE_TOOLCHAIN_FILE "C:/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
     set(CMAKE_IGNORE_PATH "C:/Qt/6.8.3/msvc2022_64")
-    set(CMAKE_PREFIX_PATH "C:/vcpkg/installed/x64-windows-static-md")
-    # Matches the vcpkg default runtime (Dynamic CRT)
-    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+    set(CMAKE_PREFIX_PATH "C:/vcpkg/installed/x64-windows-static-mt")
+    # Static CRT: MT for release, MTd for debug
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
 project(GraphAnalyzer VERSION 1.0.0)
@@ -14,7 +15,6 @@ project(GraphAnalyzer VERSION 1.0.0)
 # 2. GLOBAL COMPILER FIXES
 if(MSVC)
     add_compile_options(/Zm200 /bigobj)
-    # FIX FOR C2589: Disables Windows min/max macros to allow std::numeric_limits
     add_definitions(-DNOMINMAX)
 endif()
 
@@ -32,7 +32,7 @@ include(FetchContent)
 FetchContent_Declare(
         snap_src
         GIT_REPOSITORY https://github.com/aperelman/snap
-        GIT_TAG       compiled-by-clang21
+        GIT_TAG        compiled-by-clang21
 )
 FetchContent_MakeAvailable(snap_src)
 set(SNAP_CORE_DIR ${snap_src_SOURCE_DIR}/snap-core)
@@ -55,12 +55,20 @@ set(SOURCES
         ui/src/download_manager.cpp
         ui/src/snap_dataset_cache.cpp
         ui/src/snap_browser_widget.cpp
-        algorithms/exact_arboricity/ExactArboricity.cpp
+        ui/src/resources.qrc
         algorithms/triangle_counting/TriangleCounting.cpp
         algorithms/common/GraphCache.cpp
         algorithms/exact_arboricity/ArboricitySolver.cpp
         algorithms/exact_arboricity/density_algorithm.cpp
 )
+
+# Triangle counting standalone test
+add_executable(tc_test
+        algorithms/triangle_counting/tc_test.cpp
+        algorithms/triangle_counting/TriangleCounting.cpp
+)
+set_target_properties(tc_test PROPERTIES CXX_STANDARD 23)
+target_include_directories(tc_test PRIVATE algorithms/triangle_counting)
 
 add_executable(GraphAnalyzer ${SOURCES})
 
@@ -78,7 +86,6 @@ target_include_directories(GraphAnalyzer PRIVATE
 )
 
 # 6. Link Libraries & Static Plugins
-# NOTE: We removed the hardcoded .lib paths that were missing
 target_link_libraries(GraphAnalyzer PRIVATE
         Qt6::Widgets
         Qt6::Network
@@ -88,7 +95,6 @@ target_link_libraries(GraphAnalyzer PRIVATE
         Qt6::QWindowsIntegrationPlugin
         ZLIB::ZLIB
         snap
-        # REQUIRED for HTTPS support on Windows without separate plugins
         Crypt32.lib
         Secur32.lib
         Ncrypt.lib
