@@ -12,23 +12,28 @@ class DownloadManager : public QObject {
 public:
     explicit DownloadManager(QObject *parent = nullptr);
 
-    // Dataset download (.txt.gz)
     void startDownload(const QUrl &url, const QString &savePath);
-
-    // SNAP index catalog download (.html)
     void startCatalogDownload(const QUrl &url, const QString &savePath);
+    void validateUrl(const QUrl &url);
 
-    Q_SIGNALS: // Required by QT_NO_KEYWORDS in CMakeLists.txt
-        void progress(int percentage);
+    // Fetch dataset HTML page and resolve the real .txt.gz download URL
+
+    void cancelDownload();
+    bool isDownloading() const { return m_activeReply != nullptr; }
+
+Q_SIGNALS:
+    void progress(qint64 bytesReceived, qint64 bytesTotal);
     void finished(const QString &filePath);
     void error(const QString &message);
-    void catalogDownloaded(bool success); // Signal for SnapBrowserWidget to parse index
+    void catalogDownloaded(bool success);
+    void urlValidated(const QUrl &url, bool isValid);
 
-private Q_SLOTS: // Required by QT_NO_KEYWORDS in CMakeLists.txt
+private Q_SLOTS:
     void onFinished(QNetworkReply *reply);
 
 private:
     QNetworkAccessManager *manager;
+    QNetworkReply *m_activeReply = nullptr;
 };
 
 #endif

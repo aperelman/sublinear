@@ -277,14 +277,16 @@ void AlgorithmRunner::runImportanceSamplingEstimation(const QString& filePath, i
         log(QString("  T_hat = %1").arg((int64_t)std::llround(T_hat)));
 
         if (T_ref > 0) {
-            double ratio = T_hat / (double)T_ref;
-            double err   = (ratio - 1.0) * 100.0;
-            QString arrow = (ratio >= 1.0) ? "▲" : "▼";
-            QString color = (std::abs(err) < 20.0) ? "#1e8449" : "#c0392b";
-            log(QString("<font color='%1'>  %2 T_hat/T_exact = %3  (error = %4%)</font>")
-                    .arg(color).arg(arrow)
-                    .arg(ratio, 0, 'f', 4)
-                    .arg(std::abs(err), 0, 'f', 1));
+            double ratio  = T_hat / (double)T_ref;
+            double err    = std::abs(ratio - 1.0) * 100.0;
+            int64_t diff  = std::llround(T_hat) - T_ref;
+            QString arrow = (diff >= 0) ? "▲" : "▼";
+            QString dir   = (diff >= 0) ? "up" : "down";
+            QString color = "#f1c40f";  // gold — stands out regardless of error magnitude
+            log(QString("<font color='%1'><b>  error: %2 %3 by %4  (error = %5%)</b></font>")
+                    .arg(color).arg(arrow).arg(dir)
+                    .arg(std::abs(diff))
+                    .arg(err, 0, 'f', 2));
         }
         log("========================================");
 

@@ -54,7 +54,8 @@ public:
     explicit SnapBrowserWidget(DownloadManager *mgr, QWidget *parent = nullptr);
     ~SnapBrowserWidget() override;
     QUrl getUrlForDataset(const QString& filename) const;
-
+    void refreshDownloadedStatus();  // Called after download finishes
+    void markDatasetDownloaded(const QString &name);  // Called by MainWindow after successful download
 signals:
     void datasetSelected(const QString &name, const QUrl &url, int64_t triangles);
     void downloadRequested(const QString &name, const QUrl &url);
@@ -101,6 +102,7 @@ private:
     QMap<QString, int64_t>    m_trianglesCache;
     QSet<QString>             m_fetchingTriangles;
     QList<BundledDataset>     m_bundledCatalog;
+    bool                      m_refreshingIndex = false;
+    QMap<QString, QUrl>       m_resolvedUrls;    // resolved download URLs per dataset
 };
-
 #endif

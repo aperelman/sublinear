@@ -7,6 +7,7 @@
 #include <QComboBox>
 #include <QSpinBox>
 #include <QTextEdit>
+#include <QTextBrowser>
 #include <QLabel>
 #include <QUrl>
 #include <QCloseEvent>
@@ -18,7 +19,6 @@
 #include <QFileSystemModel>
 #include <QDockWidget>
 #include <QListWidget>
-#include <QTextBrowser>
 
 #include "algorithm_runner.h"
 #include "snap_browser_widget.h"
@@ -43,7 +43,7 @@ private Q_SLOTS:
     void onAlgoSelectionChanged(const QString &algo);
     void handleLogMessage(const QString &message);
     void handleArboricityFinished(double arboricity);
-    void onLocalFileSelected(const QModelIndex &index);   // double-click in local file view
+    void onLocalFileSelected(const QModelIndex &index);
 
 private:
     void startAnalysis(const QString &filePath);
@@ -64,11 +64,11 @@ private:
 
     // UI Components
     QSplitter        *m_splitter;
-    QTabWidget       *m_tabWidget;          // left side: tabs
-    SnapBrowserWidget *m_snapBrowser;       // tab: SNAP Datasets
-    QTreeView        *m_localFileView;      // tab: Local Files
-    QFileSystemModel *m_fileModel;          // model for local files
-    QLineEdit        *m_localFolderEdit;    // shows current folder in Local Files tab
+    QTabWidget       *m_tabWidget;
+    SnapBrowserWidget *m_snapBrowser;
+    QTreeView        *m_localFileView;
+    QFileSystemModel *m_fileModel;
+    QLineEdit        *m_localFolderEdit;
 
     // Right panel controls
     QLineEdit   *m_editFilePath;
@@ -77,11 +77,11 @@ private:
     QSpinBox    *m_degeneracySpinBox;
     QLabel      *m_labelStatus;
     QPushButton *m_btnRun;
+    QPushButton *m_btnCancelDownload = nullptr;
     QLabel      *m_labelNodes;
     QLabel      *m_labelEdges;
     QLabel      *m_labelTriangles;
-    QTextEdit   *m_textLog;
-    QPushButton *m_btnCancelDownload = nullptr;
+    QTextBrowser *m_textLog;
 
     // Report viewer dock
     QDockWidget  *m_reportDock    = nullptr;
@@ -98,7 +98,7 @@ private:
     bool     m_pendingChainedImportanceSampling = false;
     QString  m_chainedFilePath;
     QString  m_lastAnalyzedPath;
-    QString  m_pendingGzPath;      // path of gz being downloaded (for cancel+delete)
+    QString  m_pendingGzPath;
 
     std::unique_ptr<DownloadManager> m_downloadManager;
     SnapDatasetCache m_statsCache;

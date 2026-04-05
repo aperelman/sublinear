@@ -171,10 +171,12 @@ MainWindow::MainWindow(QWidget *parent)
     statusLayout->addWidget(m_labelTriangles);
     rightLayout->addWidget(statusBox);
 
-    m_textLog = new QTextEdit(this);
+    m_textLog = new QTextBrowser(this);
     m_textLog->setReadOnly(true);
     m_textLog->setLineWrapMode(QTextEdit::NoWrap);
     m_textLog->setFontFamily("Consolas");
+    m_textLog->setOpenExternalLinks(true);
+    m_textLog->setOpenLinks(true);
     rightLayout->addWidget(m_textLog);
 
     // Button row
@@ -314,6 +316,26 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_runner.get(), &AlgorithmRunner::logMessage, this, &MainWindow::handleLogMessage);
     connect(m_runner.get(), &AlgorithmRunner::finished, this, &MainWindow::updateProperties);
     connect(m_runner.get(), &AlgorithmRunner::arboricityCalculated, this, &MainWindow::handleArboricityFinished);
+
+    // Handle download errors — reset UI and suggest manual download
+    connect(m_downloadManager.get(), &DownloadManager::error, this, [this](const QString &msg) {
+        disconnect(m_downloadManager.get(), &DownloadManager::progress, this, nullptr);
+        m_btnCancelDownload->setVisible(false);
+        m_btnRun->setEnabled(true);
+        m_labelStatus->setText("Status: Download Failed");
+        logError(msg);
+        if (!m_pendingGzPath.isEmpty()) {
+            QString localPath = m_pendingGzPath;
+            if (localPath.endsWith(".gz")) localPath.chop(3);
+            logHtml(QString("<font color='%1'>💡 Try selecting this dataset again — the correct URL will be resolved automatically.</font>")
+                        .arg(kColorWarning));
+            logHtml(QString("<font color='%1'>   Or download manually and place the extracted file at: %2</font>")
+                        .arg(kColorWarning).arg(localPath));
+            logHtml(QString("<font color='%1'>   Then use 'Open File...' in the Local Files tab to load it.</font>")
+                        .arg(kColorWarning));
+        }
+        m_pendingGzPath.clear();
+    });
     connect(m_runner.get(), &AlgorithmRunner::arboricityFailedZero, this, [this](){
         logError("Arboricity calculation failed (result <= 0)");
         m_btnRun->setEnabled(true);
@@ -364,6 +386,7 @@ void MainWindow::handleRunClicked() {
 
             auto downloadTimer = std::make_shared<QElapsedTimer>();
             downloadTimer->start();
+            disconnect(m_downloadManager.get(), &DownloadManager::progress, this, nullptr);
             connect(m_downloadManager.get(), &DownloadManager::progress,
                     this, [this, downloadTimer](qint64 bytesReceived, qint64 bytesTotal) {
                         qint64 elapsedMs = std::max(downloadTimer->elapsed(), (qint64)1);
@@ -402,13 +425,15 @@ void MainWindow::handleDownloadFinished(const QString &gzPath) {
     m_btnCancelDownload->setVisible(false);
     m_btnRun->setEnabled(true);
     m_pendingGzPath.clear();
+    disconnect(m_downloadManager.get(), &DownloadManager::progress, this, nullptr);
 
     if (gzPath.isEmpty() || !QFile::exists(gzPath)) {
         logError("Download failed or file not found.");
-        m_btnRun->setEnabled(true);
         m_labelStatus->setText("Status: Ready");
         return;
     }
+
+    logHtml(QString("<font color='%1'>Download complete: %2</font>").arg(kColorResult).arg(QFileInfo(gzPath).fileName()));
 
     QString outPath = gzPath;
     if (outPath.endsWith(".gz")) outPath.chop(3);
@@ -520,7 +545,7 @@ void MainWindow::startAnalysis(const QString &filePathRaw) {
         return;
     }
 
-    m_textLog->clear();
+    m_textLog->append("<hr style='border-color:#444; margin:6px 0;'/>");
     m_isAnalysisRunning = true;
     m_btnRun->setEnabled(false);
     m_pendingChainedImportanceSampling = false;
@@ -889,6 +914,7 @@ void MainWindow::refreshReportList() {
 }
 
 void MainWindow::handleCancelDownload() {
+    disconnect(m_downloadManager.get(), &DownloadManager::progress, this, nullptr);
     if (m_downloadManager && m_downloadManager->isDownloading()) {
         m_downloadManager->cancelDownload();
         if (!m_pendingGzPath.isEmpty() && QFile::exists(m_pendingGzPath)) {

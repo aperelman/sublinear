@@ -3,6 +3,7 @@
 #include <QNetworkRequest>
 #include <QFile>
 #include <QDir>
+#include <QRegularExpression>
 
 DownloadManager::DownloadManager(QObject *parent) : QObject(parent) {
     manager = new QNetworkAccessManager(this);
@@ -28,17 +29,46 @@ void DownloadManager::validateUrl(const QUrl &url) {
 
 void DownloadManager::startDownload(const QUrl &url, const QString &savePath) {
     QNetworkRequest request(url);
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                         QNetworkRequest::NoLessSafeRedirectPolicy);
     QNetworkReply *reply = manager->get(request);
     reply->setProperty("savePath", savePath);
     reply->setProperty("isCatalog", false);
     m_activeReply = reply;
+
+    // Open file immediately and stream chunks as they arrive —
+    // avoids buffering gigabytes in memory for large datasets
+    auto *file = new QFile(savePath, reply);  // reply is parent, auto-deleted
+    if (!file->open(QIODevice::WriteOnly)) {
+        reply->abort();
+        Q_EMIT error("Could not open file for writing: " + savePath);
+        return;
+    }
+
+    connect(reply, &QNetworkReply::readyRead, this, [this, reply, file]() {
+        if (file->write(reply->readAll()) == -1) {
+            reply->abort();
+            Q_EMIT error("Disk write failed: " + file->errorString());
+        }
+    });
 
     connect(reply, &QNetworkReply::downloadProgress, this,
         [this](qint64 bytesReceived, qint64 bytesTotal) {
             Q_EMIT progress(bytesReceived, bytesTotal);
         });
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() { this->onFinished(reply); });
+    connect(reply, &QNetworkReply::finished, this, [this, reply, file, savePath]() {
+        file->flush();
+        file->close();
+        if (reply == m_activeReply) m_activeReply = nullptr;
+        if (reply->error() == QNetworkReply::NoError) {
+            Q_EMIT finished(savePath);
+        } else if (reply->error() != QNetworkReply::OperationCanceledError) {
+            QFile::remove(savePath);  // delete partial file on error
+            Q_EMIT error("Download failed: " + reply->errorString());
+        }
+        reply->deleteLater();
+    });
 }
 
 void DownloadManager::cancelDownload() {
@@ -57,26 +87,19 @@ void DownloadManager::startCatalogDownload(const QUrl &url, const QString &saveP
 
 void DownloadManager::onFinished(QNetworkReply *reply) {
     QString savePath = reply->property("savePath").toString();
-    bool isCatalog = reply->property("isCatalog").toBool();
-
+    // Only catalog downloads reach here now
     if (reply->error() == QNetworkReply::NoError) {
         QFile file(savePath);
         if (file.open(QIODevice::WriteOnly)) {
             file.write(reply->readAll());
             file.close();
-            if (isCatalog) Q_EMIT catalogDownloaded(true);
-            Q_EMIT finished(savePath);
+            Q_EMIT catalogDownloaded(true);
         } else {
-            if (isCatalog) Q_EMIT catalogDownloaded(false);
-            Q_EMIT error("Could not open file for writing: " + savePath);
+            Q_EMIT catalogDownloaded(false);
         }
     } else {
-        // Don't emit error or finished on user-initiated abort
-        if (reply->error() != QNetworkReply::OperationCanceledError) {
-            if (isCatalog) Q_EMIT catalogDownloaded(false);
-            Q_EMIT error("Download failed: " + reply->errorString());
-        }
+        if (reply->error() != QNetworkReply::OperationCanceledError)
+            Q_EMIT catalogDownloaded(false);
     }
-    if (reply == m_activeReply) m_activeReply = nullptr;
     reply->deleteLater();
 }

@@ -164,12 +164,15 @@ void SnapBrowserWidget::addDatasetRow(const QString& id, const QString& name,
     QString downloadDir = QStandardPaths::writableLocation(
                               QStandardPaths::DownloadLocation);
 
-    // Check for cached triangles
     int64_t cachedTris = m_trianglesCache.value(name, -1);
     if (cachedTris >= 0) tris = cachedTris;
 
-    QUrl downloadUrl("https://snap.stanford.edu/data/" + id + ".txt.gz");
-    bool downloaded = QFile::exists(downloadDir + "/" + id + ".txt");
+    // Use resolved URL if available, otherwise placeholder
+    QUrl downloadUrl = m_resolvedUrls.value(name,
+        QUrl("https://snap.stanford.edu/data/" + id + ".txt.gz"));
+
+    bool downloaded = QFile::exists(downloadDir + "/" + name + ".txt")
+                   || QFile::exists(downloadDir + "/" + id + ".txt");
 
     auto *itemName  = new QStandardItem(name);
     auto *itemNodes = new QStandardItem(formatNumber(nodes));
@@ -181,6 +184,7 @@ void SnapBrowserWidget::addDatasetRow(const QString& id, const QString& name,
     itemName->setData((qlonglong)nodes,  Qt::UserRole + ColNodes);
     itemName->setData((qlonglong)edges,  Qt::UserRole + ColEdges);
     itemName->setData((qlonglong)tris,   Qt::UserRole + ColTriangles);
+    itemName->setData(id,                Qt::UserRole + 10);  // store id for page URL
 
     itemNodes->setTextAlignment(Qt::AlignCenter);
     itemEdges->setTextAlignment(Qt::AlignCenter);
@@ -202,6 +206,7 @@ void SnapBrowserWidget::addDatasetRow(const QString& id, const QString& name,
 void SnapBrowserWidget::onRefreshClicked() {
     if (!refreshButton || !downloadManager) return;
     refreshButton->setEnabled(false);
+    m_refreshingIndex = true;
     emit logMessage("Fetching latest SNAP index...");
     downloadManager->startCatalogDownload(
         QUrl("https://snap.stanford.edu/data/index.html"),
@@ -209,6 +214,8 @@ void SnapBrowserWidget::onRefreshClicked() {
 }
 
 void SnapBrowserWidget::handleCatalogReady(bool success) {
+    if (!m_refreshingIndex) return;  // ignore catalogDownloaded from subpage fetches
+    m_refreshingIndex = false;
     if (refreshButton) refreshButton->setEnabled(true);
 
     if (success) {
@@ -374,16 +381,27 @@ void SnapBrowserWidget::handleSelectionChanged(
     int64_t edges        = nameItem->data(Qt::UserRole + ColEdges).toLongLong();
 
     updateRowDownloadStatus(row);
+
+    // Apply cached triangles from persisted cache if not already in model
+    if (triangles <= 0 && m_trianglesCache.contains(name)) {
+        triangles = m_trianglesCache[name];
+        nameItem->setData((qlonglong)triangles, Qt::UserRole + ColTriangles);
+        auto* tItem = datasetModel->item(row, ColTriangles);
+        if (tItem) tItem->setText(formatNumber(triangles));
+    }
+
     emit datasetSelected(name, downloadUrl, triangles);
 
-    // Lazily fetch missing stats from individual dataset subpage
+    // Always fetch subpage to resolve real download URL + fill missing stats
+    // Skip only if URL already resolved and stats complete
+    bool missingUrl   = !m_resolvedUrls.contains(name);
     bool missingStats = (triangles <= 0 || nodes <= 0 || edges <= 0);
-    if (missingStats && !m_fetchingTriangles.contains(name)) {
+
+    if ((missingUrl || missingStats) && !m_fetchingTriangles.contains(name)) {
         m_fetchingTriangles.insert(name);
 
-        // Extract dataset ID from URL
-        QString datasetId = QFileInfo(downloadUrl.path()).baseName();
-        if (datasetId.endsWith(".txt")) datasetId.chop(4);
+        QString datasetId = nameItem->data(Qt::UserRole + 10).toString();  // stored id
+        if (datasetId.isEmpty()) datasetId = name;  // fallback
 
         QUrl subPageUrl("https://snap.stanford.edu/data/" + datasetId + ".html");
         QString tempPath = QStandardPaths::writableLocation(
@@ -392,11 +410,14 @@ void SnapBrowserWidget::handleSelectionChanged(
         int     currentRow   = row;
         QString currentName  = name;
 
-        connect(downloadManager, &DownloadManager::finished, this,
-            [this, currentName, currentRow, tempPath](const QString &path) {
-                if (path != tempPath) return;
+        connect(downloadManager, &DownloadManager::catalogDownloaded, this,
+            [this, currentName, currentRow, tempPath](bool success) {
+                if (!success) {
+                    m_fetchingTriangles.remove(currentName);
+                    return;
+                }
 
-                QFile file(path);
+                QFile file(tempPath);
                 if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
                     m_fetchingTriangles.remove(currentName);
                     return;
@@ -404,10 +425,9 @@ void SnapBrowserWidget::handleSelectionChanged(
 
                 QString html = QString::fromUtf8(file.readAll());
                 file.close();
-                QFile::remove(path);
+                QFile::remove(tempPath);
 
-                // Parse stats from dataset subpage
-                // These pages have a consistent stats table that rarely changes
+                // Parse stats
                 auto parseNum = [&](const QString& label) -> int64_t {
                     QRegularExpression re(
                         label + "[^0-9]*([\\d,]+)",
@@ -423,11 +443,42 @@ void SnapBrowserWidget::handleSelectionChanged(
                 int64_t nodes = parseNum("Nodes");
                 int64_t edges = parseNum("Edges");
 
+                // Parse real download URL — first .txt.gz link on the page
+                QUrl resolvedUrl;
+                QRegularExpression urlRe("href=\"([^\"]+\\.txt\\.gz)\"",
+                                         QRegularExpression::CaseInsensitiveOption);
+                auto urlMatch = urlRe.match(html);
+                if (urlMatch.hasMatch()) {
+                    QString href = urlMatch.captured(1);
+                    if (href.startsWith("http")) {
+                        resolvedUrl = QUrl(href);
+                    } else if (href.startsWith("../")) {
+                        // ../data/bigdata/... means relative to snap.stanford.edu/data/
+                        // so go up one level from /data/ → snap.stanford.edu/
+                        resolvedUrl = QUrl("https://snap.stanford.edu/" + href.mid(3));
+                    } else if (href.startsWith("/")) {
+                        resolvedUrl = QUrl("https://snap.stanford.edu" + href);
+                    } else {
+                        resolvedUrl = QUrl("https://snap.stanford.edu/data/" + href);
+                    }
+                } else {
+                    // No .txt.gz found — dataset may use unsupported format (zip/csv)
+                    emit logMessage(QString("⚠ %1: no .txt.gz download found on SNAP page — dataset may not be supported").arg(currentName));
+                }
+
                 // Update model
                 if (datasetModel && currentRow >= 0
                         && currentRow < datasetModel->rowCount()) {
                     auto* ni = datasetModel->item(currentRow, ColName);
                     if (ni && ni->text() == currentName) {
+                        // Store resolved URL
+                        if (resolvedUrl.isValid()) {
+                            ni->setData(resolvedUrl, Qt::UserRole);
+                            m_resolvedUrls[currentName] = resolvedUrl;
+                            // Re-emit datasetSelected with correct URL if this is still selected
+                            emit datasetSelected(currentName, resolvedUrl,
+                                ni->data(Qt::UserRole + ColTriangles).toLongLong());
+                        }
                         if (nodes > 0) {
                             ni->setData((qlonglong)nodes, Qt::UserRole + ColNodes);
                             auto* nItem = datasetModel->item(currentRow, ColNodes);
@@ -450,9 +501,9 @@ void SnapBrowserWidget::handleSelectionChanged(
                 }
 
                 m_fetchingTriangles.remove(currentName);
-            }, Qt::QueuedConnection);
+            }, Qt::SingleShotConnection);
 
-        downloadManager->startDownload(subPageUrl, tempPath);
+        downloadManager->startCatalogDownload(subPageUrl, tempPath);
     } else if (!missingStats) {
         emit datasetMetadataLoaded(name, nodes, edges, triangles);
     }
@@ -521,4 +572,37 @@ void SnapBrowserWidget::saveCache() {
 QString SnapBrowserWidget::cacheFilePath() const {
     return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
            + "/cache/snap_cache.json";
+}
+
+void SnapBrowserWidget::refreshDownloadedStatus() {
+    for (int row = 0; row < datasetModel->rowCount(); ++row) {
+        QStandardItem *item = datasetModel->item(row);
+        if (!item) continue;
+
+        QString originalName = item->data(Qt::UserRole).toString();
+        if (originalName.isEmpty()) continue;
+
+        QString dataDir = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation) + "/GraphAnalyzer";
+        QString filePath = dataDir + "/" + originalName + ".txt";
+        bool isDownloaded = QFile::exists(filePath);
+
+        QString displayName = isDownloaded ? "✓ " + originalName : originalName;
+        item->setText(displayName);
+    }
+}
+
+void SnapBrowserWidget::markDatasetDownloaded(const QString &name) {
+    // Find the item by its stored name (Qt::UserRole)
+    for (int row = 0; row < datasetModel->rowCount(); ++row) {
+        QStandardItem *item = datasetModel->item(row);
+        if (!item) continue;
+
+        QString itemName = item->data(Qt::UserRole).toString();
+        if (itemName == name) {
+            // Update display with checkmark
+            QString displayName = "✓ " + itemName;
+            item->setText(displayName);
+            break;
+        }
+    }
 }
