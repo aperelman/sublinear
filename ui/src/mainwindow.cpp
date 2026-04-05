@@ -314,6 +314,30 @@ MainWindow::MainWindow(QWidget *parent)
     });
 
     connect(m_snapBrowser, &SnapBrowserWidget::logMessage, this, &MainWindow::handleLogMessage);
+    connect(m_snapBrowser, &SnapBrowserWidget::cacheCleared, this, [this](const QString &name) {
+        QString localPath = QDir::cleanPath(localPathForDataset(name));
+        if (m_statsCache.hasDataset(localPath)) {
+            m_statsCache.addDataset(localPath, DatasetStats{});
+            m_statsCache.save(statsCachePath());
+        }
+        m_exactTriangleCount    = 0;
+        m_pendingSnapArboricity = 0.0;
+        m_lastAnalyzedPath.clear();
+        m_labelTriangles->setText("Triangles: -");
+    });
+    connect(m_snapBrowser, &SnapBrowserWidget::cacheCleared, this, [this](const QString &name) {
+        QString localPath = QDir::cleanPath(localPathForDataset(name));
+        if (m_statsCache.hasDataset(localPath)) {
+            m_statsCache.addDataset(localPath, DatasetStats{});
+            m_statsCache.save(statsCachePath());
+        }
+        m_exactTriangleCount    = 0;
+        m_pendingSnapArboricity = 0.0;
+        m_lastAnalyzedPath.clear();
+        m_labelTriangles->setText("Triangles: -");
+        logHtml(QString("<font color='%1'>Stats cache cleared for: %2</font>")
+                    .arg(kColorWarning).arg(name));
+    });
     connect(m_runner.get(), &AlgorithmRunner::logMessage, this, &MainWindow::handleLogMessage);
     connect(m_runner.get(), &AlgorithmRunner::finished, this, &MainWindow::updateProperties);
     connect(m_runner.get(), &AlgorithmRunner::arboricityCalculated, this, &MainWindow::handleArboricityFinished);
@@ -675,8 +699,13 @@ void MainWindow::updateProperties(const QString& name, int64_t nodes, int64_t ed
         if (exact > 0 && triangles >= 0) {
             double gap = std::abs(static_cast<double>(triangles - exact));
             double pct = (gap / exact) * 100.0;
-            logHtml(QString("<font color='%1'><b>RESULT: Exact=%2 | Estimated=%3 | Error=%4%</b></font>")
-                    .arg(kColorGold).arg(exact).arg(triangles).arg(pct, 0, 'f', 2));
+            int64_t diff = triangles - exact;
+            QString arrow = (diff >= 0) ? "▲" : "▼";
+            QString dir   = (diff >= 0) ? "up" : "down";
+            logHtml(QString("<font color='%1'><b>RESULT: Exact=%2 | Estimated=%3</b></font>")
+                    .arg(kColorGold).arg(exact).arg(triangles));
+            logHtml(QString("<font color='%1'><b>%2 %3 by %4 (%5%)</b></font>")
+                    .arg("#d4a017").arg(arrow).arg(dir).arg(std::abs(diff)).arg(pct, 0, 'f', 2));
         }
         logHtml(QString("<font color='%1'><b>Analysis Complete.</b></font>").arg(kColorResult));
         saveReport();

@@ -61,6 +61,7 @@ signals:
     void downloadRequested(const QString &name, const QUrl &url);
     void logMessage(const QString &message);
     void datasetMetadataLoaded(const QString &name, int64_t nodes, int64_t edges, int64_t triangles);
+    void cacheCleared(const QString &name);
 
 private slots:
     void onSearchTextChanged(const QString &text);
@@ -70,6 +71,7 @@ private slots:
     void handleCatalogReady(bool success);
     void handleUrlValidated(const QUrl &url, bool isValid);
     void onSortIndicatorChanged(int logicalIndex, Qt::SortOrder order);
+    void onClearCacheClicked();
 
 private:
     // Bundled JSON catalog
@@ -89,6 +91,8 @@ private:
     void saveCache();
     QString cacheFilePath() const;
 
+    void highlightCachedRows();
+
     static QString formatNumber(int64_t n);
     static QString getIndexFilePath();
 
@@ -98,11 +102,10 @@ private:
     QLineEdit*             searchEdit;
     QTreeView*             datasetView;
     QPushButton*           refreshButton;
+    QPushButton*           clearCacheButton = nullptr;
 
     QMap<QString, int64_t>    m_trianglesCache;
     QSet<QString>             m_fetchingTriangles;
     QList<BundledDataset>     m_bundledCatalog;
-    bool                      m_refreshingIndex = false;
-    QMap<QString, QUrl>       m_resolvedUrls;    // resolved download URLs per dataset
 };
 #endif
