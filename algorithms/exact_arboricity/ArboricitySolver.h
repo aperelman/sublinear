@@ -3,69 +3,112 @@
 
 #include <vector>
 #include <utility>
-#include <queue>
-#include <limits>
-#include <algorithm>
 #include <functional>
+#include <unordered_map>
+#include <string>
 
 /**
- * @brief High-performance solver for Exact Arboricity using Nash-Williams theorem.
- * * This class calculates the minimum number of forests needed to cover the edges of a graph.
- * It utilizes a binary search over potential arboricity values (k), verified by
- * constructing a flow network and executing Dinic's Max-Flow algorithm.
+ * @brief High-performance exact arboricity solver using Nash-Williams theorem.
+ *
+ * Algorithm:
+ *   Binary search on k in [lo, hi], where each candidate k is verified by
+ *   constructing a 3-layer flow network and running Dinic's max-flow algorithm.
+ *   The graph has arboricity k iff max-flow == |E|.
+ *
+ * Performance features (no threads required):
+ *   - Integer capacities (exact arithmetic, no epsilon comparisons)
+ *   - Iterative DFS with advance-pointer (no recursion, no stack overflow)
+ *   - Warm-start: flow network persists across binary search steps;
+ *     only sink capacities are patched between iterations (O(V) vs O(V+E))
+ *   - Flow reset only when moving to a larger k (feasibility lost)
+ *   - Tight upper bound: min(degeneracy, ceil(maxDegree/2)+1)
+ *   - Fast path: tests lo before entering binary search
+ *   - Densest subgraph extraction for UI highlighting
  */
 class ArboricitySolver {
 public:
+    using LogFn    = std::function<void(const std::string&)>;
+    using ProgressFn = std::function<void(int currentK, int lo, int hi)>;
+
     /**
-     * @brief Construct a new Arboricity Solver
-     * @param numNodes The total number of vertices in the graph (from SNAP or local model).
+     * @param numNodes  Total number of vertices (node IDs are 0-based).
      */
     explicit ArboricitySolver(int numNodes);
 
-    /**
-     * @brief Adds an undirected edge to the internal representation.
-     * @param u Source node index.
-     * @param v Destination node index.
-     */
+    /** Add an undirected edge. Call before computeExact(). */
     void addEdge(int u, int v);
 
     /**
-     * @brief Computes the exact arboricity of the graph.
-     * @param onProgress Optional callback: void(int currentK, int low, int high).
-     * @return The exact arboricity (integer).
+     * Compute exact arboricity.
+     *
+     * @param onProgress  Optional callback fired each binary-search step.
+     * @param log         Optional logger for diagnostic messages.
+     * @return            Exact arboricity (integer >= 0).
      */
-    int computeExact(std::function<void(int, int, int)> onProgress = nullptr);
+    int computeExact(ProgressFn onProgress = nullptr,
+                     LogFn      log        = nullptr);
 
     /**
-     * @brief Returns the nodes of the densest subgraph found during the last failed partition check.
-     * Useful for UI highlighting in the GraphAnalyzer.
-     * @return std::vector<int> List of node indices.
+     * Returns nodes of the densest subgraph found during the last
+     * infeasible partition check. Useful for UI highlighting.
      */
-    std::vector<int> getDensestSubgraph() const;
+    const std::vector<int>& getDensestSubgraph() const;
 
 private:
-    // Internal structure for Dinic's flow network edges
+    // -----------------------------------------------------------------------
+    // Flow network (integer capacities for exact arithmetic)
+    // -----------------------------------------------------------------------
     struct FlowEdge {
-        int to;
-        double capacity;
-        double flow;
-        size_t rev; // Index of the reverse edge in adj[to]
+        int  to;
+        long cap;   // residual capacity
+        int  rev;   // index of reverse edge in adj[to]
     };
 
-    /**
-     * @brief Checks if the graph can be partitioned into k forests.
-     * Implements the flow-based density check: |E(H)| <= k(|V(H)| - 1).
-     */
-    bool canPartition(int k);
+    using Graph = std::vector<std::vector<FlowEdge>>;
 
-    // --- Dinic's Algorithm Core Helpers ---
-    double runMaxFlow(int s, int t, std::vector<std::vector<FlowEdge>>& adj);
-    bool bfs(int s, int t, const std::vector<std::vector<FlowEdge>>& adj, std::vector<int>& level);
-    double dfs(int v, int t, double pushed, std::vector<int>& level, std::vector<size_t>& ptr, std::vector<std::vector<FlowEdge>>& adj);
+    // Node layout inside the flow network:
+    //   0          = super-source
+    //   1 .. M     = edge-nodes  (one per original edge)
+    //   M+1 .. M+N = vertex-nodes
+    //   M+N+1      = super-sink
+    int m_source{0};
+    int m_sink{0};
+    int m_flowN{0};   // total nodes in flow network
 
+    Graph m_graph;    // persistent across binary-search iterations
+    int   m_currentK{-1};
+
+    // -----------------------------------------------------------------------
+    // Dinic's algorithm internals
+    // -----------------------------------------------------------------------
+    std::vector<int>    m_level;
+    std::vector<int>    m_ptr;   // advance pointer per node (int, not size_t)
+
+    bool bfs();
+    long runMaxFlow();   // iterative DFS embedded inside
+
+    // -----------------------------------------------------------------------
+    // Network construction / warm-start
+    // -----------------------------------------------------------------------
+    void buildNetwork(int k);
+    void patchSinkCapacity(int oldK, int newK);
+    void resetFlow();
+
+    // -----------------------------------------------------------------------
+    // Helpers
+    // -----------------------------------------------------------------------
+    int  computeDegeneracy() const;
+    int  computeUpperBound(int degeneracy) const;
+    void extractDensestSubgraph();
+
+    void addFlowEdge(int u, int v, long cap);
+
+    // -----------------------------------------------------------------------
+    // Graph data
+    // -----------------------------------------------------------------------
     int m_numNodes;
-    std::vector<std::pair<int, int>> m_edges;
-    std::vector<int> m_criticalNodes; // Stores the Min-Cut result (densest subgraph).
+    std::vector<std::pair<int,int>> m_edges;
+    std::vector<int>                m_densestSubgraph;
 };
 
 #endif // ARBORICITY_SOLVER_H
