@@ -1,0 +1,594 @@
+[
+  {
+    "id": "ego-Facebook",
+    "name": "ego-Facebook",
+    "nodes": 4039,
+    "edges": 88234,
+    "triangles": 1612010,
+    "type": "Social"
+  },
+  {
+    "id": "ego-Twitter",
+    "name": "ego-Twitter",
+    "nodes": 81306,
+    "edges": 1768149,
+    "triangles": 13082506,
+    "type": "Social"
+  },
+  {
+    "id": "ego-Gplus",
+    "name": "ego-Gplus",
+    "nodes": 107614,
+    "edges": 13673453,
+    "triangles": 0,
+    "type": "Social"
+  },
+  {
+    "id": "com-Facebook",
+    "name": "com-Facebook",
+    "nodes": 4039,
+    "edges": 88234,
+    "triangles": 1612010,
+    "type": "Social"
+  },
+  {
+    "id": "com-DBLP",
+    "name": "com-DBLP",
+    "nodes": 317080,
+    "edges": 1049866,
+    "triangles": 2224385,
+    "type": "Collaboration"
+  },
+  {
+    "id": "com-Amazon",
+    "name": "com-Amazon",
+    "nodes": 334863,
+    "edges": 925872,
+    "triangles": 667129,
+    "type": "Amazon"
+  },
+  {
+    "id": "com-Youtube",
+    "name": "com-Youtube",
+    "nodes": 1134890,
+    "edges": 2987624,
+    "triangles": 3056386,
+    "type": "Social"
+  },
+  {
+    "id": "com-LiveJournal",
+    "name": "com-LiveJournal",
+    "nodes": 3997962,
+    "edges": 34681189,
+    "triangles": 177820130,
+    "type": "Social"
+  },
+  {
+    "id": "com-Orkut",
+    "name": "com-Orkut",
+    "nodes": 3072441,
+    "edges": 117185083,
+    "triangles": 627584181,
+    "type": "Social"
+  },
+  {
+    "id": "com-Friendster",
+    "name": "com-Friendster",
+    "nodes": 65608366,
+    "edges": 1806067135,
+    "triangles": 0,
+    "type": "Social"
+  },
+  {
+    "id": "soc-Epinions1",
+    "name": "soc-Epinions1",
+    "nodes": 75879,
+    "edges": 508837,
+    "triangles": 1624481,
+    "type": "Social"
+  },
+  {
+    "id": "soc-Slashdot0811",
+    "name": "soc-Slashdot0811",
+    "nodes": 77360,
+    "edges": 905468,
+    "triangles": 551724,
+    "type": "Social"
+  },
+  {
+    "id": "soc-Slashdot0902",
+    "name": "soc-Slashdot0902",
+    "nodes": 82168,
+    "edges": 948464,
+    "triangles": 602592,
+    "type": "Social"
+  },
+  {
+    "id": "soc-sign-bitcoin-alpha",
+    "name": "soc-sign-bitcoin-alpha",
+    "nodes": 3783,
+    "edges": 24186,
+    "triangles": 0,
+    "type": "Signed"
+  },
+  {
+    "id": "soc-sign-bitcoin-otc",
+    "name": "soc-sign-bitcoin-otc",
+    "nodes": 5881,
+    "edges": 35592,
+    "triangles": 0,
+    "type": "Signed"
+  },
+  {
+    "id": "soc-sign-epinions",
+    "name": "soc-sign-epinions",
+    "nodes": 131828,
+    "edges": 841372,
+    "triangles": 0,
+    "type": "Signed"
+  },
+  {
+    "id": "wiki-Vote",
+    "name": "wiki-Vote",
+    "nodes": 7115,
+    "edges": 103689,
+    "triangles": 608389,
+    "type": "Social"
+  },
+  {
+    "id": "wiki-Talk",
+    "name": "wiki-Talk",
+    "nodes": 2394385,
+    "edges": 5021410,
+    "triangles": 9203519,
+    "type": "Communication"
+  },
+  {
+    "id": "wiki-RfA",
+    "name": "wiki-RfA",
+    "nodes": 10835,
+    "edges": 159388,
+    "triangles": 0,
+    "type": "Social"
+  },
+  {
+    "id": "email-EuAll",
+    "name": "email-EuAll",
+    "nodes": 265214,
+    "edges": 420045,
+    "triangles": 267313,
+    "type": "Communication"
+  },
+  {
+    "id": "email-Enron",
+    "name": "email-Enron",
+    "nodes": 36692,
+    "edges": 367662,
+    "triangles": 727044,
+    "type": "Communication"
+  },
+  {
+    "id": "email-EuCore",
+    "name": "email-EuCore",
+    "nodes": 1005,
+    "edges": 25571,
+    "triangles": 105461,
+    "type": "Communication"
+  },
+  {
+    "id": "cit-HepTh",
+    "name": "cit-HepTh",
+    "nodes": 27770,
+    "edges": 352807,
+    "triangles": 1478735,
+    "type": "Citation"
+  },
+  {
+    "id": "cit-HepPh",
+    "name": "cit-HepPh",
+    "nodes": 34546,
+    "edges": 421578,
+    "triangles": 1276868,
+    "type": "Citation"
+  },
+  {
+    "id": "cit-Patents",
+    "name": "cit-Patents",
+    "nodes": 3774768,
+    "edges": 16518948,
+    "triangles": 7515023,
+    "type": "Citation"
+  },
+  {
+    "id": "ca-GrQc",
+    "name": "ca-GrQc",
+    "nodes": 5242,
+    "edges": 28980,
+    "triangles": 48260,
+    "type": "Collaboration"
+  },
+  {
+    "id": "ca-HepTh",
+    "name": "ca-HepTh",
+    "nodes": 9877,
+    "edges": 51971,
+    "triangles": 28339,
+    "type": "Collaboration"
+  },
+  {
+    "id": "ca-HepPh",
+    "name": "ca-HepPh",
+    "nodes": 12008,
+    "edges": 237010,
+    "triangles": 3358499,
+    "type": "Collaboration"
+  },
+  {
+    "id": "ca-CondMat",
+    "name": "ca-CondMat",
+    "nodes": 23133,
+    "edges": 186936,
+    "triangles": 173361,
+    "type": "Collaboration"
+  },
+  {
+    "id": "ca-AstroPh",
+    "name": "ca-AstroPh",
+    "nodes": 18772,
+    "edges": 396160,
+    "triangles": 1351441,
+    "type": "Collaboration"
+  },
+  {
+    "id": "web-Google",
+    "name": "web-Google",
+    "nodes": 875713,
+    "edges": 5105039,
+    "triangles": 13391903,
+    "type": "Web"
+  },
+  {
+    "id": "web-BerkStan",
+    "name": "web-BerkStan",
+    "nodes": 685230,
+    "edges": 7600595,
+    "triangles": 64690980,
+    "type": "Web"
+  },
+  {
+    "id": "web-Stanford",
+    "name": "web-Stanford",
+    "nodes": 281903,
+    "edges": 2312497,
+    "triangles": 11329473,
+    "type": "Web"
+  },
+  {
+    "id": "web-NotreDame",
+    "name": "web-NotreDame",
+    "nodes": 325729,
+    "edges": 1497134,
+    "triangles": 8910005,
+    "type": "Web"
+  },
+  {
+    "id": "roadNet-CA",
+    "name": "roadNet-CA",
+    "nodes": 1965206,
+    "edges": 2766607,
+    "triangles": 120676,
+    "type": "Road"
+  },
+  {
+    "id": "roadNet-PA",
+    "name": "roadNet-PA",
+    "nodes": 1088092,
+    "edges": 1541898,
+    "triangles": 67150,
+    "type": "Road"
+  },
+  {
+    "id": "roadNet-TX",
+    "name": "roadNet-TX",
+    "nodes": 1379917,
+    "edges": 1921660,
+    "triangles": 82869,
+    "type": "Road"
+  },
+  {
+    "id": "amazon0302",
+    "name": "amazon0302",
+    "nodes": 262111,
+    "edges": 1234877,
+    "triangles": 717719,
+    "type": "Amazon"
+  },
+  {
+    "id": "amazon0312",
+    "name": "amazon0312",
+    "nodes": 400727,
+    "edges": 3200440,
+    "triangles": 3686467,
+    "type": "Amazon"
+  },
+  {
+    "id": "amazon0505",
+    "name": "amazon0505",
+    "nodes": 410236,
+    "edges": 3356824,
+    "triangles": 3951063,
+    "type": "Amazon"
+  },
+  {
+    "id": "amazon0601",
+    "name": "amazon0601",
+    "nodes": 403394,
+    "edges": 3387388,
+    "triangles": 3986507,
+    "type": "Amazon"
+  },
+  {
+    "id": "p2p-Gnutella04",
+    "name": "p2p-Gnutella04",
+    "nodes": 10876,
+    "edges": 39994,
+    "triangles": 934,
+    "type": "Internet"
+  },
+  {
+    "id": "p2p-Gnutella05",
+    "name": "p2p-Gnutella05",
+    "nodes": 8846,
+    "edges": 31839,
+    "triangles": 947,
+    "type": "Internet"
+  },
+  {
+    "id": "p2p-Gnutella06",
+    "name": "p2p-Gnutella06",
+    "nodes": 8717,
+    "edges": 31525,
+    "triangles": 906,
+    "type": "Internet"
+  },
+  {
+    "id": "p2p-Gnutella08",
+    "name": "p2p-Gnutella08",
+    "nodes": 6301,
+    "edges": 20777,
+    "triangles": 2383,
+    "type": "Internet"
+  },
+  {
+    "id": "p2p-Gnutella09",
+    "name": "p2p-Gnutella09",
+    "nodes": 8114,
+    "edges": 26013,
+    "triangles": 2508,
+    "type": "Internet"
+  },
+  {
+    "id": "p2p-Gnutella24",
+    "name": "p2p-Gnutella24",
+    "nodes": 26518,
+    "edges": 65369,
+    "triangles": 1118,
+    "type": "Internet"
+  },
+  {
+    "id": "p2p-Gnutella25",
+    "name": "p2p-Gnutella25",
+    "nodes": 22687,
+    "edges": 54705,
+    "triangles": 806,
+    "type": "Internet"
+  },
+  {
+    "id": "p2p-Gnutella30",
+    "name": "p2p-Gnutella30",
+    "nodes": 36682,
+    "edges": 88328,
+    "triangles": 1590,
+    "type": "Internet"
+  },
+  {
+    "id": "p2p-Gnutella31",
+    "name": "p2p-Gnutella31",
+    "nodes": 62586,
+    "edges": 147892,
+    "triangles": 2024,
+    "type": "Internet"
+  },
+  {
+    "id": "as-733",
+    "name": "as-733",
+    "nodes": 6474,
+    "edges": 13895,
+    "triangles": 6584,
+    "type": "Internet"
+  },
+  {
+    "id": "as-Caida",
+    "name": "as-Caida",
+    "nodes": 26475,
+    "edges": 106762,
+    "triangles": 36365,
+    "type": "Internet"
+  },
+  {
+    "id": "as-skitter",
+    "name": "as-skitter",
+    "nodes": 1696415,
+    "edges": 11095298,
+    "triangles": 28769868,
+    "type": "Internet"
+  },
+  {
+    "id": "loc-Gowalla",
+    "name": "loc-Gowalla",
+    "nodes": 196591,
+    "edges": 950327,
+    "triangles": 2273138,
+    "type": "Location"
+  },
+  {
+    "id": "loc-Brightkite",
+    "name": "loc-Brightkite",
+    "nodes": 58228,
+    "edges": 214078,
+    "triangles": 494728,
+    "type": "Location"
+  },
+  {
+    "id": "musae-Facebook",
+    "name": "musae-Facebook",
+    "nodes": 22470,
+    "edges": 171002,
+    "triangles": 0,
+    "type": "Social"
+  },
+  {
+    "id": "musae-GitHub",
+    "name": "musae-GitHub",
+    "nodes": 37700,
+    "edges": 289003,
+    "triangles": 0,
+    "type": "Social"
+  },
+  {
+    "id": "musae-Twitch-DE",
+    "name": "musae-Twitch-DE",
+    "nodes": 9498,
+    "edges": 153138,
+    "triangles": 0,
+    "type": "Social"
+  },
+  {
+    "id": "musae-Twitch-EN",
+    "name": "musae-Twitch-EN",
+    "nodes": 7126,
+    "edges": 35324,
+    "triangles": 0,
+    "type": "Social"
+  },
+  {
+    "id": "musae-Twitch-ES",
+    "name": "musae-Twitch-ES",
+    "nodes": 4648,
+    "edges": 59382,
+    "triangles": 0,
+    "type": "Social"
+  },
+  {
+    "id": "musae-Twitch-FR",
+    "name": "musae-Twitch-FR",
+    "nodes": 6549,
+    "edges": 112666,
+    "triangles": 0,
+    "type": "Social"
+  },
+  {
+    "id": "musae-Twitch-PT",
+    "name": "musae-Twitch-PT",
+    "nodes": 1912,
+    "edges": 31299,
+    "triangles": 0,
+    "type": "Social"
+  },
+  {
+    "id": "musae-Twitch-RU",
+    "name": "musae-Twitch-RU",
+    "nodes": 4385,
+    "edges": 37304,
+    "triangles": 0,
+    "type": "Social"
+  },
+  {
+    "id": "sx-mathoverflow",
+    "name": "sx-mathoverflow",
+    "nodes": 24818,
+    "edges": 506550,
+    "triangles": 0,
+    "type": "Communication"
+  },
+  {
+    "id": "sx-askubuntu",
+    "name": "sx-askubuntu",
+    "nodes": 159316,
+    "edges": 964437,
+    "triangles": 0,
+    "type": "Communication"
+  },
+  {
+    "id": "sx-superuser",
+    "name": "sx-superuser",
+    "nodes": 194085,
+    "edges": 1443339,
+    "triangles": 0,
+    "type": "Communication"
+  },
+  {
+    "id": "sx-stackoverflow",
+    "name": "sx-stackoverflow",
+    "nodes": 2601977,
+    "edges": 36233450,
+    "triangles": 0,
+    "type": "Communication"
+  },
+  {
+    "id": "twitter-2010",
+    "name": "twitter-2010",
+    "nodes": 41652230,
+    "edges": 1468365182,
+    "triangles": 0,
+    "type": "Social"
+  },
+  {
+    "id": "higgs-twitter",
+    "name": "higgs-twitter",
+    "nodes": 456626,
+    "edges": 14855842,
+    "triangles": 0,
+    "type": "Social"
+  },
+  {
+    "id": "github-stargazers",
+    "name": "github-stargazers",
+    "nodes": 289003,
+    "edges": 1771429,
+    "triangles": 0,
+    "type": "Social"
+  },
+  {
+    "id": "twitch-gamers",
+    "name": "twitch-gamers",
+    "nodes": 168114,
+    "edges": 6797557,
+    "triangles": 0,
+    "type": "Social"
+  },
+  {
+    "id": "deezer-europe",
+    "name": "deezer-europe",
+    "nodes": 28281,
+    "edges": 185504,
+    "triangles": 0,
+    "type": "Social"
+  },
+  {
+    "id": "lastfm-asia",
+    "name": "lastfm-asia",
+    "nodes": 7624,
+    "edges": 27806,
+    "triangles": 0,
+    "type": "Social"
+  },
+  {
+    "id": "facebook-large",
+    "name": "facebook-large",
+    "nodes": 22470,
+    "edges": 171002,
+    "triangles": 0,
+    "type": "Social"
+  }
+]
