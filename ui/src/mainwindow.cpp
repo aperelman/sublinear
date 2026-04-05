@@ -20,6 +20,7 @@
 #include <QFileInfo>
 #include <QThreadPool>
 #include <vector>
+#include <QMouseEvent>
 #include <QMenuBar>
 #include <QMenu>
 #include <QToolBar>
@@ -100,7 +101,7 @@ MainWindow::MainWindow(QWidget *parent)
         m_fileModel->setRootPath(dir);
         m_localFileView->setRootIndex(m_fileModel->index(dir));
         m_localFolderEdit->setText(dir);
-        logHtml(QString("<font color='%1'>Browsing folder: %2</font>").arg(kColorPhase).arg(dir));
+        logHtml(QString("<font color='%1'>Browsing folder: %2</font>").arg(kColorPhase).arg(dir.toHtmlEscaped()));
     });
 
     connect(btnBrowseFile, &QPushButton::clicked, this, [this](){
@@ -116,7 +117,7 @@ MainWindow::MainWindow(QWidget *parent)
         m_fileModel->setRootPath(dir);
         m_localFileView->setRootIndex(m_fileModel->index(dir));
         m_localFolderEdit->setText(dir);
-        logHtml(QString("<font color='%1'>Selected file: %2</font>").arg(kColorPhase).arg(path));
+        logHtml(QString("<font color='%1'>Selected file: %2</font>").arg(kColorPhase).arg(path.toHtmlEscaped()));
     });
 
     // --- SNAP Datasets Tab ---
@@ -171,12 +172,12 @@ MainWindow::MainWindow(QWidget *parent)
     statusLayout->addWidget(m_labelTriangles);
     rightLayout->addWidget(statusBox);
 
-    m_textLog = new QTextBrowser(this);
+    m_textLog = new QTextEdit(this);
     m_textLog->setReadOnly(true);
     m_textLog->setLineWrapMode(QTextEdit::NoWrap);
     m_textLog->setFontFamily("Consolas");
-    m_textLog->setOpenExternalLinks(true);
-    m_textLog->setOpenLinks(true);
+    m_textLog->setTextInteractionFlags(
+        Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
     rightLayout->addWidget(m_textLog);
 
     // Button row
@@ -260,7 +261,7 @@ MainWindow::MainWindow(QWidget *parent)
         QString path = QFileDialog::getOpenFileName(this, "Open Graph File", "", "Text Files (*.txt)");
         if (!path.isEmpty()) {
             m_editFilePath->setText(path);
-            logHtml(QString("<font color='%1'>Selected local file: %2</font>").arg(kColorPhase).arg(path));
+            logHtml(QString("<font color='%1'>Selected local file: %2</font>").arg(kColorPhase).arg(path.toHtmlEscaped()));
         }
     });
 
@@ -281,7 +282,7 @@ MainWindow::MainWindow(QWidget *parent)
             QString filePath = m_fileModel->filePath(indexes.first());
             if (filePath.endsWith(".txt")) {
                 m_editFilePath->setText(filePath);
-                logHtml(QString("<font color='%1'>Selected local file: %2</font>").arg(kColorPhase).arg(filePath));
+                logHtml(QString("<font color='%1'>Selected local file: %2</font>").arg(kColorPhase).arg(filePath.toHtmlEscaped()));
             }
         }
     });
@@ -522,7 +523,7 @@ void MainWindow::startAnalysis(const QString &filePathRaw) {
         outPath += ".txt";
         if (!QFile::exists(outPath)) {
             m_labelStatus->setText("Status: Extracting...");
-            logHtml(QString("<font color='%1'>Extracting: %2</font>").arg(kColorPhase).arg(filePath));
+            logHtml(QString("<font color='%1'>Extracting: %2</font>").arg(kColorPhase).arg(filePath.toHtmlEscaped()));
             QThreadPool::globalInstance()->start([this, filePath, outPath]() {
                 bool ok = decompressGz(filePath, outPath, nullptr);
                 QMetaObject::invokeMethod(this, [this, ok, filePath, outPath]() {
@@ -532,20 +533,20 @@ void MainWindow::startAnalysis(const QString &filePathRaw) {
                         m_labelStatus->setText("Status: Failed");
                         return;
                     }
-                    logHtml(QString("<font color='%1'>Extraction complete: %2</font>").arg(kColorResult).arg(outPath));
+                    logHtml(QString("<font color='%1'>Extraction complete: %2</font>").arg(kColorResult).arg(outPath.toHtmlEscaped()));
                     m_editFilePath->setText(outPath);
                     startAnalysis(outPath);
                 }, Qt::QueuedConnection);
             });
         } else {
-            logHtml(QString("<font color='%1'>Found extracted file: %2</font>").arg(kColorPhase).arg(outPath));
+            logHtml(QString("<font color='%1'>Found extracted file: %2</font>").arg(kColorPhase).arg(outPath.toHtmlEscaped()));
             m_editFilePath->setText(outPath);
             startAnalysis(outPath);
         }
         return;
     }
 
-    m_textLog->append("<hr style='border-color:#444; margin:6px 0;'/>");
+    m_textLog->clear();
     m_isAnalysisRunning = true;
     m_btnRun->setEnabled(false);
     m_pendingChainedImportanceSampling = false;
@@ -613,7 +614,7 @@ void MainWindow::startAnalysis(const QString &filePathRaw) {
     }
 
     logHtml(QString("<font color='%1'><b>--- Starting %2 ---</b></font>").arg(kColorPhase).arg(algo));
-    logHtml(QString("File: %1").arg(filePath));
+    logHtml(QString("File: %1").arg(filePath.toHtmlEscaped()));
     m_labelStatus->setText("Status: Running...");
 
     if (algo == "Exact Triangle Counting") {
@@ -721,7 +722,7 @@ void MainWindow::handleArboricityFinished(double arboricity) {
 }
 
 void MainWindow::handleLogMessage(const QString &message) {
-    m_textLog->append(message);
+    m_textLog->append(QString("<p style='margin:0; text-decoration:none;'>%1</p>").arg(message));
 }
 
 void MainWindow::onAlgoSelectionChanged(const QString &algo) {
@@ -732,11 +733,12 @@ void MainWindow::onAlgoSelectionChanged(const QString &algo) {
 
 void MainWindow::logHtml(const QString &html) {
     QString ts = QTime::currentTime().toString("[HH:mm:ss] ");
-    m_textLog->append(ts + html);
+    // Wrap in p with explicit style to prevent Qt auto-detecting URLs as links
+    m_textLog->append(QString("<p style='margin:0; text-decoration:none;'>%1%2</p>").arg(ts, html));
 }
 
 void MainWindow::logError(const QString &msg) {
-    logHtml(QString("<font color='%1'>ERROR: %2</font>").arg(kColorError).arg(msg));
+    logHtml(QString("<font color='%1'>ERROR: %2</font>").arg(kColorError).arg(msg.toHtmlEscaped()));
 }
 
 QString MainWindow::statsCachePath() const {
@@ -772,7 +774,7 @@ void MainWindow::saveReport() {
     QFile f(filePath);
     if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) {
         logHtml(QString("<font color='%1'>Warning: Could not save report to %2</font>")
-                    .arg(kColorWarning).arg(filePath));
+                    .arg(kColorWarning).arg(filePath.toHtmlEscaped()));
         return;
     }
 

@@ -81,7 +81,7 @@ private:
     QLabel      *m_labelNodes;
     QLabel      *m_labelEdges;
     QLabel      *m_labelTriangles;
-    QTextBrowser *m_textLog;
+    QTextEdit    *m_textLog;
 
     // Report viewer dock
     QDockWidget  *m_reportDock    = nullptr;
