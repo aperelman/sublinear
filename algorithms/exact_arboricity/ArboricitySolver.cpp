@@ -11,6 +11,9 @@
 #include <thread>
 #include <atomic>
 #include <mutex>
+#include <thread>
+#include <atomic>
+#include <mutex>
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -48,6 +51,8 @@ int ArboricitySolver::computeExact(ProgressFn onProgress, LogFn log)
     auto lg = [&](const std::string& msg) { if (log) log(msg); };
 
     if (m_edges.empty() || m_numNodes <= 1) return 0;
+
+    m_nThreads = std::max(1, (int)std::thread::hardware_concurrency());
 
     // Remap node IDs to contiguous [0, N) FIRST — before computeDegeneracy
     // or any other operation that uses node IDs as array indices.
@@ -235,26 +240,76 @@ void ArboricitySolver::resetFlow()
 }
 
 // ---------------------------------------------------------------------------
-// Dinic's BFS (level graph construction)
+// Parallel BFS — level graph construction using atomic level array
+// Each frontier level is processed in parallel by m_nThreads threads.
 // ---------------------------------------------------------------------------
 bool ArboricitySolver::bfs()
 {
-    std::fill(m_level.begin(), m_level.end(), -1);
-    m_level[m_source] = 0;
+    // Use atomic ints for thread-safe level assignment
+    std::vector<std::atomic<int>> level(m_flowN);
+    for (auto& l : level) l.store(-1, std::memory_order_relaxed);
+    level[m_source].store(0, std::memory_order_relaxed);
 
-    std::queue<int> q;
-    q.push(m_source);
+    // Current frontier and next frontier
+    std::vector<int> frontier;
+    frontier.reserve(m_flowN);
+    frontier.push_back(m_source);
 
-    while (!q.empty()) {
-        int u = q.front(); q.pop();
-        for (const auto& e : m_graph[u]) {
-            if (e.cap > 0 && m_level[e.to] < 0) {
-                m_level[e.to] = m_level[u] + 1;
-                q.push(e.to);
-            }
+    bool reachedSink = false;
+
+    while (!frontier.empty() && !reachedSink) {
+        std::vector<int> nextFrontier;
+        std::mutex nextMtx;
+
+        // Partition frontier across threads
+        const int fSize = (int)frontier.size();
+        const int chunk = std::max(1, fSize / m_nThreads);
+
+        std::vector<std::thread> threads;
+        threads.reserve(m_nThreads);
+        std::atomic<bool> sinkFound{false};
+
+        for (int t = 0; t < m_nThreads; ++t) {
+            int lo = t * chunk;
+            int hi = (t == m_nThreads - 1) ? fSize : std::min(lo + chunk, fSize);
+            if (lo >= fSize) break;
+
+            threads.emplace_back([&, lo, hi]() {
+                std::vector<int> localNext;
+                for (int fi = lo; fi < hi; ++fi) {
+                    int u = frontier[fi];
+                    int uLevel = level[u].load(std::memory_order_relaxed);
+                    for (const auto& e : m_graph[u]) {
+                        if (e.cap <= 0) continue;
+                        int expected = -1;
+                        if (level[e.to].compare_exchange_strong(
+                                expected, uLevel + 1,
+                                std::memory_order_relaxed)) {
+                            if (e.to == m_sink)
+                                sinkFound.store(true, std::memory_order_relaxed);
+                            localNext.push_back(e.to);
+                        }
+                    }
+                }
+                if (!localNext.empty()) {
+                    std::lock_guard<std::mutex> lk(nextMtx);
+                    nextFrontier.insert(nextFrontier.end(),
+                                        localNext.begin(), localNext.end());
+                }
+            });
         }
+        for (auto& th : threads) th.join();
+
+        if (sinkFound) { reachedSink = true; }
+        frontier = std::move(nextFrontier);
     }
-    return m_level[m_sink] >= 0;
+
+    // Copy atomic levels back to m_level for use in augmentation
+    m_level.resize(m_flowN);
+    for (int i = 0; i < m_flowN; ++i)
+        m_level[i] = level[i].load(std::memory_order_relaxed);
+
+    return reachedSink;
 }
 
 // ---------------------------------------------------------------------------

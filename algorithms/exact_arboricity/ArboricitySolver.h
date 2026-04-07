@@ -6,6 +6,8 @@
 #include <functional>
 #include <unordered_map>
 #include <string>
+#include <thread>
+#include <atomic>
 
 /**
  * @brief High-performance exact arboricity solver using Nash-Williams theorem.
@@ -109,6 +111,7 @@ private:
     int m_numNodes;
     std::vector<std::pair<int,int>> m_edges;
     std::vector<int>                m_densestSubgraph;
+    int                             m_nThreads{1};  // set once in computeExact
 };
 
 #endif // ARBORICITY_SOLVER_H
