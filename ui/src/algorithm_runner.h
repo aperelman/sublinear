@@ -9,6 +9,12 @@
 
 class GraphCache;
 
+enum class ArboricityMethod {
+    Exact,        // Dinic's max-flow (slow, precise)
+    Approximate,  // Greedy peeling O(V+E) (fast, good approximation)
+    Manual        // User-supplied value
+};
+
 class AlgorithmRunner : public QObject {
     Q_OBJECT
 public:
@@ -16,7 +22,9 @@ public:
     ~AlgorithmRunner();
 
     void runTriangleCounting(const QString& filePath);
-    void runArboricity(const QString& filePath, int degeneracy);
+    void runArboricity(const QString& filePath, int degeneracy,
+                       ArboricityMethod method = ArboricityMethod::Exact,
+                       double manualValue = 0.0);
     void runImportanceSamplingEstimation(const QString& filePath, int64_t T_ref, double alpha_ref);
     void invalidateCache();
 

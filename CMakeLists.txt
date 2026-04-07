@@ -16,6 +16,11 @@ project(GraphAnalyzer VERSION 1.0.0)
 if(MSVC)
     add_compile_options(/Zm200 /bigobj)
     add_definitions(-DNOMINMAX)
+    # Release-mode extra optimizations
+    add_compile_options($<$<CONFIG:Release>:/GL>)     # whole program optimization
+    add_compile_options($<$<CONFIG:Release>:/arch:AVX2>) # AVX2 SIMD
+    add_compile_options($<$<CONFIG:Release>:/fp:fast>)   # fast floating point
+    add_link_options($<$<CONFIG:Release>:/LTCG>)      # link-time code generation
 endif()
 
 set(CMAKE_CXX_STANDARD 23)
@@ -29,6 +34,7 @@ find_package(ZLIB REQUIRED)
 
 # 4. Setup SNAP (Source-based)
 include(FetchContent)
+set(FETCHCONTENT_QUIET OFF)
 FetchContent_Declare(
         snap_src
         GIT_REPOSITORY https://github.com/aperelman/snap
@@ -48,9 +54,6 @@ target_include_directories(snap PUBLIC
 set(SOURCES
         ui/src/main.cpp
         ui/src/mainwindow.cpp
-        ui/src/graph_list_widget.cpp
-        ui/src/graph_loader.cpp
-        ui/src/local_files_widget.cpp
         ui/src/algorithm_runner.cpp
         ui/src/download_manager.cpp
         ui/src/snap_dataset_cache.cpp
@@ -59,16 +62,8 @@ set(SOURCES
         algorithms/triangle_counting/TriangleCounting.cpp
         algorithms/common/GraphCache.cpp
         algorithms/exact_arboricity/ArboricitySolver.cpp
-        algorithms/exact_arboricity/density_algorithm.cpp
+        algorithms/approx_arboricity/ArboricityApprox.cpp
 )
-
-# Triangle counting standalone test
-add_executable(tc_test
-        algorithms/triangle_counting/tc_test.cpp
-        algorithms/triangle_counting/TriangleCounting.cpp
-)
-set_target_properties(tc_test PROPERTIES CXX_STANDARD 23)
-target_include_directories(tc_test PRIVATE algorithms/triangle_counting)
 
 add_executable(GraphAnalyzer ${SOURCES})
 
@@ -79,6 +74,7 @@ target_include_directories(GraphAnalyzer PRIVATE
         ui/src
         algorithms/common
         algorithms/exact_arboricity
+        algorithms/approx_arboricity
         algorithms/triangle_counting
         ${snap_src_SOURCE_DIR}
         ${SNAP_CORE_DIR}

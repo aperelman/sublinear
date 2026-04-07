@@ -6,6 +6,7 @@
 #include <QPushButton>
 #include <QComboBox>
 #include <QSpinBox>
+#include <QDoubleSpinBox>
 #include <QTextEdit>
 #include <QTextBrowser>
 #include <QLabel>
@@ -39,8 +40,13 @@ private Q_SLOTS:
     void handleRunClicked();
     void handleDownloadFinished(const QString &gzPath);
     void handleCancelDownload();
+    void handleClearCache();
     void updateProperties(const QString& name, int64_t nodes, int64_t edges, int64_t triangles);
     void onAlgoSelectionChanged(const QString &algo);
+    void onArbMethodChanged(const QString &method);
+
+    ArboricityMethod currentArbMethod() const;
+    double           currentManualArboricity() const;
     void handleLogMessage(const QString &message);
     void handleArboricityFinished(double arboricity);
     void onLocalFileSelected(const QModelIndex &index);
@@ -75,9 +81,14 @@ private:
     QComboBox   *m_algoSelection;
     QLabel      *m_degeneracyLabel;
     QSpinBox    *m_degeneracySpinBox;
+    QComboBox   *m_arbMethodSelection  = nullptr;
+    QWidget     *m_arbMethodRow        = nullptr;
+    QDoubleSpinBox *m_arbManualSpinBox = nullptr;
+    QLabel      *m_arbManualLabel      = nullptr;
     QLabel      *m_labelStatus;
     QPushButton *m_btnRun;
     QPushButton *m_btnCancelDownload = nullptr;
+    QPushButton *m_btnClearCache     = nullptr;
     QLabel      *m_labelNodes;
     QLabel      *m_labelEdges;
     QLabel      *m_labelTriangles;

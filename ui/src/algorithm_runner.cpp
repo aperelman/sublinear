@@ -1,5 +1,6 @@
 #include "algorithm_runner.h"
 #include "ArboricitySolver.h"
+#include "ArboricityApprox.h"
 #include "GraphCache.h"
 #include "TriangleCounting.h"
 #include <QTime>
@@ -61,39 +62,60 @@ void AlgorithmRunner::runTriangleCounting(const QString& filePath) {
     });
 }
 
-void AlgorithmRunner::runArboricity(const QString& filePath, int /*degeneracy*/) {
+void AlgorithmRunner::runArboricity(const QString& filePath, int /*degeneracy*/,
+                                    ArboricityMethod method, double manualValue) {
     auto cache = m_cache;
     auto destroyed = m_isDestroyed;
-    QThreadPool::globalInstance()->start([this, filePath, cache, destroyed]() {
+    QThreadPool::globalInstance()->start([this, filePath, cache, destroyed, method, manualValue]() {
         auto log = [&](const QString &m){
             if (*destroyed) return;
             QString msg = QTime::currentTime().toString("[HH:mm:ss] ") + m;
             QMetaObject::invokeMethod(this, [this, msg](){ Q_EMIT logMessage(msg); }, Qt::QueuedConnection);
         };
+
+        // Manual — no computation needed
+        if (method == ArboricityMethod::Manual) {
+            if (manualValue <= 0) {
+                log("Error: Manual arboricity value must be > 0");
+                return;
+            }
+            log(QString("Using manual arboricity value: %1").arg(manualValue, 0, 'f', 4));
+            if (!*destroyed) {
+                QMetaObject::invokeMethod(this, [this, manualValue](){
+                    Q_EMIT arboricityCalculated(manualValue);
+                }, Qt::QueuedConnection);
+            }
+            return;
+        }
+
         QString path = normalizeGraphFile(filePath, log);
         if (path.isEmpty() || *destroyed) return;
         if (!cache->ensure(path.toStdString(), [&](const std::string& m){ log(QString::fromStdString(m)); })) return;
 
-        // Build solver from cached edges
-        const auto& edges   = cache->edges();
+        const auto& edges    = cache->edges();
         const int   numNodes = static_cast<int>(cache->nodeCount());
+        double arb = 0.0;
 
-        ArboricitySolver solver(numNodes);
-        for (const auto& [u, v] : edges)
-            solver.addEdge(u, v);
-
-        int arboricity = solver.computeExact(
-            nullptr,  // progress callback — ArboricitySolver logs internally
-            [&](const std::string& m) {
-                log(QString::fromStdString(m));
-            }
-        );
+        if (method == ArboricityMethod::Approximate) {
+            log("Computing approximate arboricity (greedy peeling)...");
+            int result = ArboricityApprox::compute(edges, numNodes,
+                [&](const std::string& m){ log(QString::fromStdString(m)); });
+            arb = static_cast<double>(result);
+        } else {
+            // Exact — Dinic's max-flow
+            ArboricitySolver solver(numNodes);
+            for (const auto& [u, v] : edges)
+                solver.addEdge(u, v);
+            int result = solver.computeExact(
+                nullptr,
+                [&](const std::string& m){ log(QString::fromStdString(m)); });
+            arb = static_cast<double>(result);
+        }
 
         if (!*destroyed) {
-            QString fp   = filePath;
-            int64_t nodes = cache->nodeCount();
+            QString fp        = filePath;
+            int64_t nodes     = cache->nodeCount();
             int64_t edgeCount = cache->edgeCount();
-            double  arb  = static_cast<double>(arboricity);
             QMetaObject::invokeMethod(this, [this, fp, nodes, edgeCount, arb](){
                 if (arb <= 0)
                     Q_EMIT arboricityFailedZero();
@@ -275,19 +297,6 @@ void AlgorithmRunner::runImportanceSamplingEstimation(const QString& filePath, i
 
         log(QString("  Wedge samples s=%1  Closing=%2").arg(s).arg(closing));
         log(QString("  T_hat = %1").arg((int64_t)std::llround(T_hat)));
-
-        if (T_ref > 0) {
-            double ratio  = T_hat / (double)T_ref;
-            double err    = std::abs(ratio - 1.0) * 100.0;
-            int64_t diff  = std::llround(T_hat) - T_ref;
-            QString arrow = (diff >= 0) ? "▲" : "▼";
-            QString dir   = (diff >= 0) ? "up" : "down";
-            QString color = "#f1c40f";  // gold — stands out regardless of error magnitude
-            log(QString("<font color='%1'><b>  error: %2 %3 by %4  (error = %5%)</b></font>")
-                    .arg(color).arg(arrow).arg(dir)
-                    .arg(std::abs(diff))
-                    .arg(err, 0, 'f', 2));
-        }
         log("========================================");
 
         if (!*destroyed) {

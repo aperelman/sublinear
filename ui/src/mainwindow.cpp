@@ -141,12 +141,20 @@ MainWindow::MainWindow(QWidget *parent)
 
     auto *algoGroup = new QWidget(this);
     auto *algoLayout = new QHBoxLayout(algoGroup);
+    algoLayout->setContentsMargins(0, 4, 0, 4);
     m_algoSelection = new QComboBox(this);
     m_algoSelection->addItems({
         "Exact Triangle Counting",
         "Exact Arboricity",
+        "Approximate Arboricity",
         "Importance Sampling Estimation"
     });
+    m_algoSelection->setStyleSheet(
+        "QComboBox { font-size: 14px; padding: 4px 8px; min-height: 28px; }"
+        "QComboBox QAbstractItemView { font-size: 14px; }");
+
+    auto *algoLabel = new QLabel("Algorithm:", this);
+    algoLabel->setStyleSheet("font-size: 14px; font-weight: bold;");
 
     m_degeneracyLabel = new QLabel("Degeneracy k:", this);
     m_degeneracySpinBox = new QSpinBox(this);
@@ -155,12 +163,45 @@ MainWindow::MainWindow(QWidget *parent)
     m_degeneracyLabel->hide();
     m_degeneracySpinBox->hide();
 
-    algoLayout->addWidget(new QLabel("Algorithm:"));
-    algoLayout->addWidget(m_algoSelection);
+    algoLayout->addWidget(algoLabel);
+    algoLayout->addWidget(m_algoSelection, 1);
     algoLayout->addWidget(m_degeneracyLabel);
     algoLayout->addWidget(m_degeneracySpinBox);
     algoLayout->addStretch();
     rightLayout->addWidget(algoGroup);
+
+    // Arboricity method row — shown only when IS or Exact Arboricity selected
+    m_arbMethodRow = new QWidget(this);
+    auto *arbMethodLayout = new QHBoxLayout(m_arbMethodRow);
+    arbMethodLayout->setContentsMargins(0, 0, 0, 0);
+
+    auto *arbLabel = new QLabel("Arboricity:", this);
+    arbLabel->setStyleSheet("font-size: 13px;");
+
+    m_arbMethodSelection = new QComboBox(this);
+    m_arbMethodSelection->addItems({"Exact (Max-Flow)", "Approximate (Greedy)", "Manual"});
+    m_arbMethodSelection->setStyleSheet(
+        "QComboBox { font-size: 13px; padding: 2px 6px; }"
+        "QComboBox QAbstractItemView { font-size: 13px; }");
+
+    m_arbManualLabel = new QLabel("Value:", this);
+    m_arbManualLabel->setStyleSheet("font-size: 13px;");
+    m_arbManualLabel->hide();
+
+    m_arbManualSpinBox = new QDoubleSpinBox(this);
+    m_arbManualSpinBox->setRange(1.0, 10000.0);
+    m_arbManualSpinBox->setDecimals(0);
+    m_arbManualSpinBox->setValue(10.0);
+    m_arbManualSpinBox->setStyleSheet("font-size: 13px;");
+    m_arbManualSpinBox->hide();
+
+    arbMethodLayout->addWidget(arbLabel);
+    arbMethodLayout->addWidget(m_arbMethodSelection, 1);
+    arbMethodLayout->addWidget(m_arbManualLabel);
+    arbMethodLayout->addWidget(m_arbManualSpinBox);
+    arbMethodLayout->addStretch();
+    m_arbMethodRow->hide();  // shown only when relevant
+    rightLayout->addWidget(m_arbMethodRow);
 
     auto *statusBox = new QWidget(this);
     auto *statusLayout = new QHBoxLayout(statusBox);
@@ -170,6 +211,14 @@ MainWindow::MainWindow(QWidget *parent)
     statusLayout->addWidget(m_labelNodes);
     statusLayout->addWidget(m_labelEdges);
     statusLayout->addWidget(m_labelTriangles);
+    statusLayout->addStretch();
+    m_btnClearCache = new QPushButton("Clear Cache", this);
+    m_btnClearCache->setToolTip("Clear cached results for the current dataset");
+    m_btnClearCache->setStyleSheet(
+        "QPushButton { font-size: 11px; color: #888; border: 1px solid #555; "
+        "border-radius: 3px; padding: 2px 8px; background: transparent; }"
+        "QPushButton:hover { color: #e74c3c; border-color: #e74c3c; }");
+    statusLayout->addWidget(m_btnClearCache);
     rightLayout->addWidget(statusBox);
 
     m_textLog = new QTextEdit(this);
@@ -267,6 +316,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(m_btnRun, &QPushButton::clicked, this, &MainWindow::handleRunClicked);
     connect(m_btnCancelDownload, &QPushButton::clicked, this, &MainWindow::handleCancelDownload);
+    connect(m_btnClearCache, &QPushButton::clicked, this, &MainWindow::handleClearCache);
     connect(btnReports, &QPushButton::clicked, this, [this]() {
         if (m_reportDock) {
             m_reportDock->setVisible(!m_reportDock->isVisible());
@@ -274,6 +324,7 @@ MainWindow::MainWindow(QWidget *parent)
         }
     });
     connect(m_algoSelection, &QComboBox::currentTextChanged, this, &MainWindow::onAlgoSelectionChanged);
+    connect(m_arbMethodSelection, &QComboBox::currentTextChanged, this, &MainWindow::onArbMethodChanged);
 
     connect(m_localFileView->selectionModel(), &QItemSelectionModel::selectionChanged,
             this, [this](){
@@ -623,9 +674,13 @@ void MainWindow::startAnalysis(const QString &filePathRaw) {
         if (needArboricity) {
             m_pendingChainedImportanceSampling = true;
             m_chainedFilePath = filePath;
-            logHtml(QString("<font color='%1'><b>--- Step 2/3: Computing Exact Arboricity ---</b></font>").arg(kColorWarning));
+            ArboricityMethod method = currentArbMethod();
+            QString methodName = (method == ArboricityMethod::Approximate) ? "Approximate (Greedy)" :
+                                 (method == ArboricityMethod::Manual)      ? "Manual" : "Exact (Max-Flow)";
+            logHtml(QString("<font color='%1'><b>--- Step 2/3: Computing Arboricity [%2] ---</b></font>")
+                        .arg(kColorWarning).arg(methodName));
             m_labelStatus->setText("Status: Computing Arboricity...");
-            m_runner->runArboricity(filePath, m_degeneracySpinBox->value());
+            m_runner->runArboricity(filePath, m_degeneracySpinBox->value(), method, currentManualArboricity());
             return;
         }
 
@@ -644,7 +699,10 @@ void MainWindow::startAnalysis(const QString &filePathRaw) {
     if (algo == "Exact Triangle Counting") {
         m_runner->runTriangleCounting(filePath);
     } else if (algo == "Exact Arboricity") {
-        m_runner->runArboricity(filePath, m_degeneracySpinBox->value());
+        m_runner->runArboricity(filePath, m_degeneracySpinBox->value(), currentArbMethod(), currentManualArboricity());
+    } else if (algo == "Approximate Arboricity") {
+        logHtml(QString("<font color='%1'><b>--- Computing Approximate Arboricity (Greedy Peeling) ---</b></font>").arg(kColorWarning));
+        m_runner->runArboricity(filePath, 0, ArboricityMethod::Approximate, 0.0);
     } else if (algo == "Importance Sampling Estimation" && !m_pendingChainedImportanceSampling) {
         m_runner->runImportanceSamplingEstimation(filePath, m_pendingSnapTriangles, m_pendingSnapArboricity);
     }
@@ -674,9 +732,13 @@ void MainWindow::updateProperties(const QString& name, int64_t nodes, int64_t ed
 
         if (m_pendingChainedImportanceSampling) {
             if (m_pendingSnapArboricity <= 0.0) {
-                logHtml(QString("<font color='%1'><b>--- Computing Exact Arboricity (not in cache) ---</b></font>").arg(kColorWarning));
+                ArboricityMethod method = currentArbMethod();
+                QString methodName = (method == ArboricityMethod::Approximate) ? "Approximate (Greedy)" :
+                                     (method == ArboricityMethod::Manual)      ? "Manual" : "Exact (Max-Flow)";
+                logHtml(QString("<font color='%1'><b>--- Computing Arboricity [%2] (not in cache) ---</b></font>")
+                            .arg(kColorWarning).arg(methodName));
                 m_labelStatus->setText("Status: Computing Arboricity...");
-                m_runner->runArboricity(m_chainedFilePath, m_degeneracySpinBox->value());
+                m_runner->runArboricity(m_chainedFilePath, m_degeneracySpinBox->value(), method, currentManualArboricity());
             } else {
                 logHtml(QString("<font color='%1'><b>--- Starting Importance Sampling Estimation ---</b></font>").arg(kColorPhase));
                 logHtml(QString("<font color='%1'>  Triangles=%2  Arboricity=%3</font>")
@@ -713,12 +775,14 @@ void MainWindow::updateProperties(const QString& name, int64_t nodes, int64_t ed
         m_btnRun->setEnabled(true);
         m_labelStatus->setText("Status: Finished");
 
-    } else if (algo == "Exact Arboricity" ||
+    } else if (algo == "Exact Arboricity" || algo == "Approximate Arboricity" ||
                (algo == "Importance Sampling Estimation" && m_pendingChainedImportanceSampling)) {
-        m_pendingChainedImportanceSampling = false;
-        if (algo == "Exact Arboricity") {
+        // Only reset chain flag for standalone arboricity runs, not IS-chained ones
+        if (algo == "Exact Arboricity" || algo == "Approximate Arboricity") {
+            m_pendingChainedImportanceSampling = false;
             m_labelTriangles->setText("Triangles: -");
         }
+        // When IS-chained, handleArboricityFinished handles the transition to IS
     }
 }
 
@@ -755,9 +819,31 @@ void MainWindow::handleLogMessage(const QString &message) {
 }
 
 void MainWindow::onAlgoSelectionChanged(const QString &algo) {
-    bool isArb = (algo == "Exact Arboricity");
+    bool isArb     = (algo == "Exact Arboricity");
+    bool needsArb  = (algo == "Exact Arboricity" ||
+                      algo == "Importance Sampling Estimation");
     m_degeneracyLabel->setVisible(isArb);
     m_degeneracySpinBox->setVisible(isArb);
+    if (m_arbMethodRow) m_arbMethodRow->setVisible(needsArb);
+}
+
+void MainWindow::onArbMethodChanged(const QString &method) {
+    bool isManual = (method == "Manual");
+    if (m_arbManualLabel)   m_arbManualLabel->setVisible(isManual);
+    if (m_arbManualSpinBox) m_arbManualSpinBox->setVisible(isManual);
+}
+
+ArboricityMethod MainWindow::currentArbMethod() const {
+    if (!m_arbMethodSelection) return ArboricityMethod::Exact;
+    QString m = m_arbMethodSelection->currentText();
+    if (m == "Approximate (Greedy)") return ArboricityMethod::Approximate;
+    if (m == "Manual")               return ArboricityMethod::Manual;
+    return ArboricityMethod::Exact;
+}
+
+double MainWindow::currentManualArboricity() const {
+    if (!m_arbManualSpinBox) return 0.0;
+    return m_arbManualSpinBox->value();
 }
 
 void MainWindow::logHtml(const QString &html) {
@@ -959,6 +1045,27 @@ void MainWindow::handleCancelDownload() {
     m_btnRun->setEnabled(true);
     m_labelStatus->setText("Status: Ready");
     m_pendingGzPath.clear();
+}
+
+void MainWindow::handleClearCache() {
+    QString filePath = QDir::cleanPath(m_editFilePath->text());
+    if (filePath.isEmpty()) {
+        logHtml(QString("<font color='%1'>No dataset loaded.</font>").arg(kColorWarning));
+        return;
+    }
+
+    m_exactTriangleCount    = 0;
+    m_pendingSnapArboricity = 0.0;
+    m_lastAnalyzedPath.clear();
+
+    if (m_statsCache.hasDataset(filePath)) {
+        m_statsCache.addDataset(filePath, DatasetStats{});
+        m_statsCache.save(statsCachePath());
+    }
+
+    m_labelTriangles->setText("Triangles: -");
+    logHtml(QString("<font color='%1'>Cache cleared for: %2</font>")
+                .arg(kColorWarning).arg(QFileInfo(filePath).fileName()));
 }
 
 void MainWindow::closeEvent(QCloseEvent *event) {
