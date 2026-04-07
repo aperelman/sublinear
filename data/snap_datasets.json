@@ -424,7 +424,7 @@
     "type": "Internet"
   },
   {
-    "id": "loc-Gowalla",
+    "id": "loc-gowalla",
     "name": "loc-Gowalla",
     "nodes": 196591,
     "edges": 950327,
@@ -432,7 +432,7 @@
     "type": "Location"
   },
   {
-    "id": "loc-Brightkite",
+    "id": "loc-brightkite",
     "name": "loc-Brightkite",
     "nodes": 58228,
     "edges": 214078,
