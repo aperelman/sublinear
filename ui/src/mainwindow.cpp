@@ -337,7 +337,6 @@ MainWindow::MainWindow(QWidget *parent)
             }
         }
     });
-    connect(m_localFileView, &QTreeView::doubleClicked, this, &MainWindow::onLocalFileSelected);
 
     connect(m_snapBrowser, &SnapBrowserWidget::datasetSelected, [this](const QString &name, const QUrl &url, int64_t triangles){
         m_pendingSnapName = name;
@@ -397,7 +396,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_downloadManager.get(), &DownloadManager::error, this, [this](const QString &msg) {
         disconnect(m_downloadManager.get(), &DownloadManager::progress, this, nullptr);
         m_btnCancelDownload->setVisible(false);
-        m_btnRun->setEnabled(true);
+
         m_labelStatus->setText("Status: Download Failed");
         logError(msg);
         if (!m_pendingGzPath.isEmpty()) {
@@ -414,9 +413,10 @@ MainWindow::MainWindow(QWidget *parent)
     });
     connect(m_runner.get(), &AlgorithmRunner::arboricityFailedZero, this, [this](){
         logError("Arboricity calculation failed (result <= 0)");
-        m_btnRun->setEnabled(true);
+
         m_labelStatus->setText("Status: Failed");
         m_isAnalysisRunning = false;
+    setRunButton(false);
         m_pendingChainedImportanceSampling = false;
     });
 
@@ -431,11 +431,43 @@ void MainWindow::onLocalFileSelected(const QModelIndex &index) {
     QString filePath = m_fileModel->filePath(index);
     if (filePath.endsWith(".txt") || filePath.endsWith(".gz")) {
         m_editFilePath->setText(filePath);
-        handleRunClicked();
+        logHtml(QString("<font color='%1'>Selected local file: %2</font>")
+                .arg("#5dade2").arg(filePath));
     }
 }
 
+void MainWindow::setRunButton(bool running) {
+    if (running) {
+        m_btnRun->setText("Stop Analysis");
+        m_btnRun->setStyleSheet(
+            "QPushButton { font-weight: bold; font-size: 13px; color: white;"
+            "  background-color: #c0392b; border: none; border-radius: 4px; padding: 6px 16px; }"
+            "QPushButton:hover { background-color: #e74c3c; }"
+            "QPushButton:pressed { background-color: #922b21; }");
+    } else {
+        m_btnRun->setText("Run Analysis");
+        m_btnRun->setStyleSheet(
+            "QPushButton { font-weight: bold; font-size: 13px; color: white;"
+            "  background-color: #1a7a4a; border: none; border-radius: 4px; padding: 6px 16px; }"
+            "QPushButton:hover { background-color: #1e8449; }"
+            "QPushButton:pressed { background-color: #145a32; }");
+    }
+    m_btnRun->setEnabled(true);
+}
+
 void MainWindow::handleRunClicked() {
+    // If analysis running — stop it
+    if (m_isAnalysisRunning) {
+        m_runner->cancel();
+        m_isAnalysisRunning = false;
+    setRunButton(false);
+        m_pendingChainedImportanceSampling = false;
+        setRunButton(false);
+        logHtml(QString("<font color='%1'>Analysis cancelled.</font>").arg(kColorWarning));
+        m_labelStatus->setText("Status: Cancelled");
+        return;
+    }
+
     QString path = m_editFilePath->text();
     if (path.isEmpty()) {
         logError("No graph file selected. Please choose a file from Local Files or SNAP Datasets.");
@@ -452,7 +484,7 @@ void MainWindow::handleRunClicked() {
             "The dataset is not found locally. Download it now from SNAP?",
             QMessageBox::Yes | QMessageBox::No);
         if (res == QMessageBox::Yes) {
-            m_btnRun->setEnabled(false);
+            setRunButton(true);
             m_btnCancelDownload->setVisible(true);
             m_pendingGzPath = gzPath;
             m_labelStatus->setText("Status: Downloading...");
@@ -499,7 +531,7 @@ void MainWindow::handleRunClicked() {
 
 void MainWindow::handleDownloadFinished(const QString &gzPath) {
     m_btnCancelDownload->setVisible(false);
-    m_btnRun->setEnabled(true);
+    setRunButton(false);
     m_pendingGzPath.clear();
     disconnect(m_downloadManager.get(), &DownloadManager::progress, this, nullptr);
 
@@ -539,7 +571,7 @@ void MainWindow::handleDownloadFinished(const QString &gzPath) {
                 startAnalysis(outPath);
             } else {
                 logError("Failed to extract .gz file. Check zlib installation.");
-                m_btnRun->setEnabled(true);
+        
                 m_labelStatus->setText("Status: Failed");
             }
         }, Qt::QueuedConnection);
@@ -579,17 +611,6 @@ bool MainWindow::decompressGz(const QString &gzPath, const QString &outPath,
 }
 
 void MainWindow::startAnalysis(const QString &filePathRaw) {
-    if (m_downloadManager && m_downloadManager->isDownloading()) {
-        logHtml("<font color='#d35400'><b>&#9888; Cannot start analysis — a download is still in progress.</b></font>");
-        logHtml("<font color='#d35400'>Please wait for the download to complete before running analysis.</font>");
-        m_labelStatus->setText("Status: Waiting for download...");
-        m_btnRun->setEnabled(true);
-        QMessageBox::warning(this, "Download in Progress",
-            "A dataset is currently being downloaded.\n\n"
-            "Please wait for the download to finish before running analysis.");
-        return;
-    }
-
     const QString filePath = QDir::cleanPath(filePathRaw);
 
     if (filePath.endsWith(".gz")) {
@@ -604,7 +625,7 @@ void MainWindow::startAnalysis(const QString &filePathRaw) {
                 QMetaObject::invokeMethod(this, [this, ok, filePath, outPath]() {
                     if (!ok) {
                         logError("Failed to extract .gz file.");
-                        m_btnRun->setEnabled(true);
+                
                         m_labelStatus->setText("Status: Failed");
                         return;
                     }
@@ -623,8 +644,12 @@ void MainWindow::startAnalysis(const QString &filePathRaw) {
 
     m_textLog->clear();
     m_isAnalysisRunning = true;
-    m_btnRun->setEnabled(false);
+    setRunButton(true);
     m_pendingChainedImportanceSampling = false;
+    QMessageBox::information(this, "Debug3", QString("algo=%1 triangles=%2 arb=%3")
+        .arg(m_algoSelection->currentText())
+        .arg(m_exactTriangleCount)
+        .arg(m_pendingSnapArboricity));
 
     logHtml(QString("<font color='%1'><b>Dataset: %2</b></font>").arg(kColorPhase).arg(QFileInfo(filePath).fileName()));
 
@@ -667,7 +692,7 @@ void MainWindow::startAnalysis(const QString &filePathRaw) {
             m_chainedFilePath = filePath;
             logHtml(QString("<font color='%1'><b>--- Step 1/3: Computing Exact Triangle Count ---</b></font>").arg(kColorWarning));
             m_labelStatus->setText("Status: Computing Triangle Count...");
-            m_runner->runTriangleCounting(filePath);
+                    m_runner->runTriangleCounting(filePath);
             return;
         }
 
@@ -752,27 +777,27 @@ void MainWindow::updateProperties(const QString& name, int64_t nodes, int64_t ed
         logHtml(QString("<font color='%1'><b>Analysis Complete.</b></font>").arg(kColorResult));
         saveReport();
         m_isAnalysisRunning = false;
-        m_btnRun->setEnabled(true);
+        setRunButton(false);
         m_labelStatus->setText("Status: Finished");
 
-    } else if (algo == "Importance Sampling Estimation" && !m_pendingChainedImportanceSampling) {
+    } else if (algo == "Importance Sampling Estimation" && triangles > 0) {
         m_labelTriangles->setText(QString("Est. Triangles: %1").arg(triangles));
         int64_t exact = m_exactTriangleCount;
+        logHtml(QString("<font color='%1'><b>RESULT: Exact=%2 | Estimated=%3</b></font>")
+                .arg(kColorGold).arg(exact).arg(triangles));
         if (exact > 0 && triangles >= 0) {
             double gap = std::abs(static_cast<double>(triangles - exact));
             double pct = (gap / exact) * 100.0;
             int64_t diff = triangles - exact;
             QString arrow = (diff >= 0) ? "▲" : "▼";
             QString dir   = (diff >= 0) ? "up" : "down";
-            logHtml(QString("<font color='%1'><b>RESULT: Exact=%2 | Estimated=%3</b></font>")
-                    .arg(kColorGold).arg(exact).arg(triangles));
             logHtml(QString("<font color='%1'><b>%2 %3 by %4 (%5%)</b></font>")
                     .arg("#d4a017").arg(arrow).arg(dir).arg(std::abs(diff)).arg(pct, 0, 'f', 2));
         }
         logHtml(QString("<font color='%1'><b>Analysis Complete.</b></font>").arg(kColorResult));
         saveReport();
         m_isAnalysisRunning = false;
-        m_btnRun->setEnabled(true);
+        setRunButton(false);
         m_labelStatus->setText("Status: Finished");
 
     } else if (algo == "Exact Arboricity" || algo == "Approximate Arboricity" ||
@@ -800,6 +825,7 @@ void MainWindow::handleArboricityFinished(double arboricity) {
     }
 
     if (m_pendingChainedImportanceSampling) {
+        m_pendingChainedImportanceSampling = false;  // reset before IS so updateProperties uses IS result branch
         logHtml(QString("<font color='%1'><b>--- Starting Importance Sampling Estimation ---</b></font>").arg(kColorPhase));
         logHtml(QString("File: %1").arg(m_chainedFilePath));
         m_labelStatus->setText("Status: Running Importance Sampling...");
@@ -810,7 +836,7 @@ void MainWindow::handleArboricityFinished(double arboricity) {
     logHtml(QString("<font color='%1'><b>Analysis Complete.</b></font>").arg(kColorResult));
     saveReport();
     m_isAnalysisRunning = false;
-    m_btnRun->setEnabled(true);
+    setRunButton(false);
     m_labelStatus->setText("Status: Finished");
 }
 
@@ -1042,7 +1068,7 @@ void MainWindow::handleCancelDownload() {
         }
     }
     m_btnCancelDownload->setVisible(false);
-    m_btnRun->setEnabled(true);
+    setRunButton(false);
     m_labelStatus->setText("Status: Ready");
     m_pendingGzPath.clear();
 }

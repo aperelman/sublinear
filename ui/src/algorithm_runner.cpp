@@ -36,6 +36,12 @@ void AlgorithmRunner::invalidateCache() {
     m_cache->invalidate();
 }
 
+void AlgorithmRunner::cancel() {
+    *m_isDestroyed = true;
+    // Re-create so future runs work
+    m_isDestroyed = std::make_shared<std::atomic<bool>>(false);
+}
+
 void AlgorithmRunner::runTriangleCounting(const QString& filePath) {
     auto cache = m_cache;
     auto destroyed = m_isDestroyed;
@@ -72,50 +78,42 @@ void AlgorithmRunner::runArboricity(const QString& filePath, int /*degeneracy*/,
             QString msg = QTime::currentTime().toString("[HH:mm:ss] ") + m;
             QMetaObject::invokeMethod(this, [this, msg](){ Q_EMIT logMessage(msg); }, Qt::QueuedConnection);
         };
-
-        // Manual — no computation needed
-        if (method == ArboricityMethod::Manual) {
-            if (manualValue <= 0) {
-                log("Error: Manual arboricity value must be > 0");
-                return;
-            }
-            log(QString("Using manual arboricity value: %1").arg(manualValue, 0, 'f', 4));
-            if (!*destroyed) {
-                QMetaObject::invokeMethod(this, [this, manualValue](){
-                    Q_EMIT arboricityCalculated(manualValue);
-                }, Qt::QueuedConnection);
-            }
-            return;
-        }
-
         QString path = normalizeGraphFile(filePath, log);
         if (path.isEmpty() || *destroyed) return;
         if (!cache->ensure(path.toStdString(), [&](const std::string& m){ log(QString::fromStdString(m)); })) return;
 
-        const auto& edges    = cache->edges();
-        const int   numNodes = static_cast<int>(cache->nodeCount());
-        double arb = 0.0;
+        double arboricity = 0.0;
 
-        if (method == ArboricityMethod::Approximate) {
+        if (method == ArboricityMethod::Manual) {
+            arboricity = manualValue;
+            log(QString("Using manual arboricity value: %1").arg(arboricity));
+        } else if (method == ArboricityMethod::Approximate) {
             log("Computing approximate arboricity (greedy peeling)...");
-            int result = ArboricityApprox::compute(edges, numNodes,
-                [&](const std::string& m){ log(QString::fromStdString(m)); });
-            arb = static_cast<double>(result);
+            const auto& edges = cache->edges();
+            const int numNodes = static_cast<int>(cache->nodeCount());
+            arboricity = static_cast<double>(ArboricityApprox::compute(
+                edges, numNodes,
+                [&](const std::string& m){ log(QString::fromStdString(m)); }
+            ));
+            log(QString("Approximate arboricity (greedy peeling) = %1").arg((int)arboricity));
         } else {
-            // Exact — Dinic's max-flow
+            const auto& edges = cache->edges();
+            const int numNodes = static_cast<int>(cache->nodeCount());
             ArboricitySolver solver(numNodes);
             for (const auto& [u, v] : edges)
                 solver.addEdge(u, v);
             int result = solver.computeExact(
                 nullptr,
-                [&](const std::string& m){ log(QString::fromStdString(m)); });
-            arb = static_cast<double>(result);
+                [&](const std::string& m){ log(QString::fromStdString(m)); }
+            );
+            arboricity = static_cast<double>(result);
         }
 
         if (!*destroyed) {
-            QString fp        = filePath;
-            int64_t nodes     = cache->nodeCount();
+            QString fp = filePath;
+            int64_t nodes = cache->nodeCount();
             int64_t edgeCount = cache->edgeCount();
+            double arb = arboricity;
             QMetaObject::invokeMethod(this, [this, fp, nodes, edgeCount, arb](){
                 if (arb <= 0)
                     Q_EMIT arboricityFailedZero();

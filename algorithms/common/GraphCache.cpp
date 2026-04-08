@@ -1,30 +1,26 @@
 #include "GraphCache.h"
 #include <fstream>
-#include <iostream>
 #include <algorithm>
 #include <mutex>
 #include <unordered_set>
 
-/**
- * @brief Thread-safe implementation of the Graph Cache.
- */
 bool GraphCache::ensure(const std::string& path, std::function<void(const std::string&)> loader) {
-    // 1. Thread Safety: Lock the mutex so multiple worker threads
-    // don't try to load/modify the same map/vector simultaneously.
-    std::lock_guard<std::mutex> lock(m_mutex);
-
-    // 2. Cache Check: If this file is already loaded, skip the parsing phase.
-    if (m_currentPath == path && !m_edges.empty()) {
-        if (loader) loader("Using cached graph data from memory.");
-        return true;
+    // Fast check under lock — release before calling loader (loader invokes Qt signals)
+    {
+        std::unique_lock<std::mutex> lock(m_mutex);
+        if (m_currentPath == path && !m_edges.empty()) {
+            lock.unlock();
+            if (loader) loader("Using cached graph data from memory.");
+            return true;
+        }
+        // Reset state before releasing lock
+        m_edges.clear();
+        m_nodeCount = 0;
+        m_edgeCount = 0;
+        m_currentPath = "";
     }
 
-    // 3. Cleanup: Invalidate old data before loading new data.
-    m_edges.clear();
-    m_nodeCount = 0;
-    m_edgeCount = 0;
-    m_currentPath = "";
-
+    // Log and do file I/O outside the lock — this is the slow part
     if (loader) loader("Parsing graph file into memory...");
 
     std::ifstream infile(path);
@@ -33,50 +29,47 @@ bool GraphCache::ensure(const std::string& path, std::function<void(const std::s
         return false;
     }
 
-    // 4. Parsing: Read the edge list (Expected format: "source target")
-    // Using strtol instead of stringstream for performance (no heap alloc per line).
-    char line[256];
-    int maxNodeId = -1;
+    std::vector<std::pair<int,int>> edges;
+    edges.reserve(1 << 20);
 
+    char line[256];
     while (infile.getline(line, sizeof(line))) {
         if (line[0] == '#' || line[0] == '\0') continue;
         char* end;
         long long u = std::strtoll(line, &end, 10);
-        if (end == line) continue;  // no number found
-        long long v = std::strtoll(end, &end, 10);
-        if (end == line) continue;  // no second number
-        m_edges.emplace_back((int)u, (int)v);
-        if (u > maxNodeId) maxNodeId = (int)u;
-        if (v > maxNodeId) maxNodeId = (int)v;
+        if (end == line) continue;
+        long long v = std::strtoll(end, nullptr, 10);
+        edges.emplace_back((int)u, (int)v);
     }
 
-    // Normalize to undirected: canonicalize (u,v) -> (min,max) and deduplicate.
-    // This handles directed graphs (e.g. SNAP) that store both (u,v) and (v,u).
-    for (auto& e : m_edges)
+    // Normalize to undirected and deduplicate
+    for (auto& e : edges)
         if (e.first > e.second) std::swap(e.first, e.second);
-    std::sort(m_edges.begin(), m_edges.end());
-    m_edges.erase(std::unique(m_edges.begin(), m_edges.end()), m_edges.end());
+    std::sort(edges.begin(), edges.end());
+    edges.erase(std::unique(edges.begin(), edges.end()), edges.end());
 
-    m_edgeCount = static_cast<int64_t>(m_edges.size());
+    int64_t edgeCount = static_cast<int64_t>(edges.size());
 
-    // Count distinct node IDs — do NOT use maxNodeId+1 since SNAP node IDs
-    // are not contiguous (e.g. as-Caida has IDs up to 65535 but only 26475 nodes).
-    // TriangleCounting and ArboricitySolver both remap internally, but nodeCount
-    // is reported in the UI and used for flow network sizing — must be accurate.
-    {
-        std::unordered_set<int> nodeSet;
-        nodeSet.reserve(m_edges.size() * 2);
-        for (const auto& e : m_edges) {
-            nodeSet.insert(e.first);
-            nodeSet.insert(e.second);
-        }
-        m_nodeCount = static_cast<int64_t>(nodeSet.size());
+    std::unordered_set<int> nodeSet;
+    nodeSet.reserve(edges.size() * 2);
+    for (const auto& e : edges) {
+        nodeSet.insert(e.first);
+        nodeSet.insert(e.second);
     }
-    m_currentPath = path;
+    int64_t nodeCount = static_cast<int64_t>(nodeSet.size());
+
+    // Store results under lock
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_edges     = std::move(edges);
+        m_edgeCount = edgeCount;
+        m_nodeCount = nodeCount;
+        m_currentPath = path;
+    }
 
     if (loader) {
-        loader(std::string("Cache loaded: ") + std::to_string(m_nodeCount) +
-               " nodes, " + std::to_string(m_edgeCount) + " edges.");
+        loader(std::string("Cache loaded: ") + std::to_string(nodeCount) +
+               " nodes, " + std::to_string(edgeCount) + " edges.");
     }
 
     return true;
@@ -85,7 +78,7 @@ bool GraphCache::ensure(const std::string& path, std::function<void(const std::s
 void GraphCache::invalidate() {
     std::lock_guard<std::mutex> lock(m_mutex);
     m_edges.clear();
-    m_edges.shrink_to_fit(); // Release memory back to OS
+    m_edges.shrink_to_fit();
     m_nodeCount = 0;
     m_edgeCount = 0;
     m_currentPath = "";

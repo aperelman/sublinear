@@ -27,6 +27,7 @@ public:
                        double manualValue = 0.0);
     void runImportanceSamplingEstimation(const QString& filePath, int64_t T_ref, double alpha_ref);
     void invalidateCache();
+    void cancel();
 
     Q_SIGNALS:
     void logMessage(const QString &message);

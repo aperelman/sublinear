@@ -44,15 +44,15 @@ private Q_SLOTS:
     void updateProperties(const QString& name, int64_t nodes, int64_t edges, int64_t triangles);
     void onAlgoSelectionChanged(const QString &algo);
     void onArbMethodChanged(const QString &method);
-
-    ArboricityMethod currentArbMethod() const;
-    double           currentManualArboricity() const;
     void handleLogMessage(const QString &message);
     void handleArboricityFinished(double arboricity);
     void onLocalFileSelected(const QModelIndex &index);
 
 private:
     void startAnalysis(const QString &filePath);
+    void setRunButton(bool running);
+    ArboricityMethod currentArbMethod() const;
+    double           currentManualArboricity() const;
     bool decompressGz(const QString &gzPath, const QString &outPath,
                       std::function<void(qint64)> progressCb = nullptr);
     QString localPathForDataset(const QString &name) const;
