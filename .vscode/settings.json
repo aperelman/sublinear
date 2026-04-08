@@ -2,12 +2,15 @@
     "cmake.sourceDirectory": "${workspaceFolder}/ui",
     "cmake.buildDirectory": "${workspaceFolder}/ui/build",
     "cmake.configureOnOpen": true,
-    "cmake.generator": "Unix Makefiles",
+    "cmake.generator": "Ninja",
     "cmake.configureSettings": {
+        "CMAKE_MAKE_PROGRAM": "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe",
+        "CMAKE_PREFIX_PATH": "C:/Qt/6.8.3/msvc2022_64",
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
     },
     "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+    "C_Cpp.default.compileCommands": "${workspaceFolder}/ui/build/compile_commands.json",
     "files.associations": {
         "*.ui": "xml",
         "qstring": "cpp",

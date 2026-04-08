@@ -1,35 +1,39 @@
-#pragma once
+#ifndef DOWNLOAD_MANAGER_H
+#define DOWNLOAD_MANAGER_H
 
 #include <QObject>
+#include <QUrl>
+#include <QFile>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
-#include <QString>
-#include <QFile>
 
 class DownloadManager : public QObject {
     Q_OBJECT
-    
 public:
-    explicit DownloadManager(QObject* parent = nullptr);
-    
-    void downloadFile(const QString& url, const QString& destinationPath);
-    void cancel();
-    
-signals:
-    void downloadProgress(qint64 bytesReceived, qint64 bytesTotal);
-    void downloadFinished(const QString& filePath);
-    void downloadError(const QString& errorMessage);
-    
-private slots:
-    void onDownloadProgress(qint64 bytesReceived, qint64 bytesTotal);
-    void onDownloadFinished();
-    void onDownloadError(QNetworkReply::NetworkError error);
-    
+    explicit DownloadManager(QObject *parent = nullptr);
+
+    void startDownload(const QUrl &url, const QString &savePath);
+    void startCatalogDownload(const QUrl &url, const QString &savePath);
+    void validateUrl(const QUrl &url);
+
+    // Fetch dataset HTML page and resolve the real .txt.gz download URL
+
+    void cancelDownload();
+    bool isDownloading() const { return m_activeReply != nullptr; }
+
+Q_SIGNALS:
+    void progress(qint64 bytesReceived, qint64 bytesTotal);
+    void finished(const QString &filePath);
+    void error(const QString &message);
+    void catalogDownloaded(bool success);
+    void urlValidated(const QUrl &url, bool isValid);
+
+private Q_SLOTS:
+    void onFinished(QNetworkReply *reply);
+
 private:
-    bool decompressGzip(const QString& gzipPath, const QString& outputPath);
-    
-    QNetworkAccessManager* networkManager;
-    QNetworkReply* currentReply;
-    QFile* outputFile;
-    QString destinationPath;
+    QNetworkAccessManager *manager;
+    QNetworkReply *m_activeReply = nullptr;
 };
+
+#endif
