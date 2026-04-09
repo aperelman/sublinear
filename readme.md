@@ -155,7 +155,7 @@ MIT License. See `LICENSE` for details.
 ---
 
 ## Acknowledgements
-
+This tool was developed in collaboration with [Talya Eden](https://sites.google.com/view/edentalya/home) (Bar-Ilan University) as part of research on sublinear graph algorithms.
 - [Stanford SNAP](https://snap.stanford.edu/) for the dataset infrastructure
 - [Qt Project](https://www.qt.io/) for the application framework
 - Sublinear Algorithms Research Group, Bar-Ilan University
