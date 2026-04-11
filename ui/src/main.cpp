@@ -2,7 +2,12 @@
 #include <QtPlugin>
 #include "mainwindow.h"
 
+// Plugin loadinfgg needed only on static build hence is
+// wrong on non--windows builds
+//
+#ifdef Q_OS_WIN
 Q_IMPORT_PLUGIN(QWindowsIntegrationPlugin)
+#endif
 
 int main(int argc, char *argv[]) {
     QApplication app(argc, argv);

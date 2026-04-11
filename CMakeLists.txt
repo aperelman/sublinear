@@ -21,6 +21,8 @@ if(MSVC)
     add_compile_options($<$<CONFIG:Release>:/arch:AVX2>) # AVX2 SIMD
     add_compile_options($<$<CONFIG:Release>:/fp:fast>)   # fast floating point
     add_link_options($<$<CONFIG:Release>:/LTCG>)      # link-time code generation
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_compile_options($<$<CONFIG:Release>:-O3> $<$<CONFIG:Release>:-march=native>)
 endif()
 
 set(CMAKE_CXX_STANDARD 23)
@@ -29,7 +31,11 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
 # 3. Find Qt6 & ZLIB
-find_package(Qt6 REQUIRED COMPONENTS Widgets Network Gui Core EntryPointPrivate)
+if(WIN32)
+    find_package(Qt6 REQUIRED COMPONENTS Widgets Network Gui Core EntryPointPrivate)
+else()
+    find_package(Qt6 REQUIRED COMPONENTS Widgets Network Gui Core)
+endif()
 find_package(ZLIB REQUIRED)
 
 # 4. Setup SNAP (Source-based)
@@ -87,16 +93,22 @@ target_link_libraries(GraphAnalyzer PRIVATE
         Qt6::Network
         Qt6::Gui
         Qt6::Core
-        Qt6::EntryPointPrivate
-        Qt6::QWindowsIntegrationPlugin
         ZLIB::ZLIB
         snap
-        Crypt32.lib
-        Secur32.lib
-        Ncrypt.lib
 )
 
-# 7. SNAP Unicode Fix
+if(WIN32)
+    target_link_libraries(GraphAnalyzer PRIVATE
+            Qt6::EntryPointPrivate
+            Qt6::QWindowsIntegrationPlugin
+            Crypt32.lib
+            Secur32.lib
+            Ncrypt.lib
+    )
+endif()
+
+# 7. SNAP Unicode Fix (SNAP uses narrow strings; Windows may define UNICODE globally)
 if(WIN32)
     add_definitions(-UUNICODE -U_UNICODE)
 endif()
+
