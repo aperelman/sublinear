@@ -1,5 +1,5 @@
 {
-    "cmake.sourceDirectory": "${workspaceFolder}/ui",
+    "cmake.sourceDirectory": "/home/amitp/src/sublinear",
     "cmake.buildDirectory": "${workspaceFolder}/ui/build",
     "cmake.configureOnOpen": true,
     "cmake.generator": "Ninja",
