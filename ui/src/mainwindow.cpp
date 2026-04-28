@@ -646,11 +646,6 @@ void MainWindow::startAnalysis(const QString &filePathRaw) {
     m_isAnalysisRunning = true;
     setRunButton(true);
     m_pendingChainedImportanceSampling = false;
-    QMessageBox::information(this, "Debug3", QString("algo=%1 triangles=%2 arb=%3")
-        .arg(m_algoSelection->currentText())
-        .arg(m_exactTriangleCount)
-        .arg(m_pendingSnapArboricity));
-
     logHtml(QString("<font color='%1'><b>Dataset: %2</b></font>").arg(kColorPhase).arg(QFileInfo(filePath).fileName()));
 
     if (filePath != m_lastAnalyzedPath) {

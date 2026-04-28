@@ -29,8 +29,15 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
 # 3. Find Qt6 & ZLIB
-find_package(Qt6 REQUIRED COMPONENTS Widgets Network Gui Core EntryPointPrivate)
+if(WIN32)
+    find_package(Qt6 REQUIRED COMPONENTS Widgets Network Gui Core EntryPointPrivate)
+else()
+    find_package(Qt6 REQUIRED COMPONENTS Widgets Network Gui Core)
+endif()
 find_package(ZLIB REQUIRED)
+
+# OpenMP (optional — triangle counting uses it if available)
+find_package(OpenMP)
 
 # 4. Setup SNAP (Source-based)
 include(FetchContent)
@@ -49,6 +56,8 @@ target_include_directories(snap PUBLIC
         ${SNAP_CORE_DIR}
         ${snap_src_SOURCE_DIR}/glib-core
 )
+# SNAP uses non-Unicode APIs; undefine UNICODE on all platforms
+target_compile_options(snap PRIVATE -UUNICODE -U_UNICODE)
 
 # 5. Source & Header Files
 set(SOURCES
@@ -81,22 +90,28 @@ target_include_directories(GraphAnalyzer PRIVATE
         ${snap_src_SOURCE_DIR}/glib-core
 )
 
-# 6. Link Libraries & Static Plugins
+# 6. Link Libraries
 target_link_libraries(GraphAnalyzer PRIVATE
         Qt6::Widgets
         Qt6::Network
         Qt6::Gui
         Qt6::Core
-        Qt6::EntryPointPrivate
-        Qt6::QWindowsIntegrationPlugin
         ZLIB::ZLIB
         snap
-        Crypt32.lib
-        Secur32.lib
-        Ncrypt.lib
 )
 
-# 7. SNAP Unicode Fix
 if(WIN32)
+    target_link_libraries(GraphAnalyzer PRIVATE
+            Qt6::EntryPointPrivate
+            Qt6::QWindowsIntegrationPlugin
+            Crypt32.lib
+            Secur32.lib
+            Ncrypt.lib
+    )
     add_definitions(-UUNICODE -U_UNICODE)
+endif()
+
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(GraphAnalyzer PRIVATE OpenMP::OpenMP_CXX)
+    target_link_libraries(snap PRIVATE OpenMP::OpenMP_CXX)
 endif()
