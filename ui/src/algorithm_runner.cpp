@@ -5,7 +5,7 @@
 #include "TriangleCounting.h"
 #include <QTime>
 #include <QFile>
-#include <QThreadPool>
+#include <QtConcurrent/QtConcurrent>
 #include <QMetaObject>
 #include <random>
 #include <unordered_map>
@@ -45,7 +45,7 @@ void AlgorithmRunner::cancel() {
 void AlgorithmRunner::runTriangleCounting(const QString& filePath) {
     auto cache = m_cache;
     auto destroyed = m_isDestroyed;
-    QThreadPool::globalInstance()->start([this, filePath, cache, destroyed]() {
+    QtConcurrent::run([this, filePath, cache, destroyed]() {
         auto log = [&](const QString &m){
             if (*destroyed) return;
             QString msg = QTime::currentTime().toString("[HH:mm:ss] ") + m;
@@ -72,7 +72,7 @@ void AlgorithmRunner::runArboricity(const QString& filePath, int /*degeneracy*/,
                                     ArboricityMethod method, double manualValue) {
     auto cache = m_cache;
     auto destroyed = m_isDestroyed;
-    QThreadPool::globalInstance()->start([this, filePath, cache, destroyed, method, manualValue]() {
+    QtConcurrent::run([this, filePath, cache, destroyed, method, manualValue]() {
         auto log = [&](const QString &m){
             if (*destroyed) return;
             QString msg = QTime::currentTime().toString("[HH:mm:ss] ") + m;
@@ -128,7 +128,7 @@ void AlgorithmRunner::runArboricity(const QString& filePath, int /*degeneracy*/,
 void AlgorithmRunner::runImportanceSamplingEstimation(const QString& filePath, int64_t T_ref, double alpha_ref) {
     auto cache = m_cache;
     auto destroyed = m_isDestroyed;
-    QThreadPool::globalInstance()->start([this, filePath, T_ref, alpha_ref, cache, destroyed]() {
+    QtConcurrent::run([this, filePath, T_ref, alpha_ref, cache, destroyed]() {
         auto log = [&](const QString &m){
             if (*destroyed) return;
             QString msg = QTime::currentTime().toString("[HH:mm:ss] ") + m;
@@ -155,17 +155,25 @@ void AlgorithmRunner::runImportanceSamplingEstimation(const QString& filePath, i
         // ----------------------------------------------------------------
         // Phase 1: Uniform edge sparsification
         // Keep each edge with probability p = r/m.
-        // r = max(ERS formula C=50, 20% floor).
+        // C is adaptive: when T is small relative to alpha^3, variance is high
+        // so we increase C to sample more edges and reduce error.
         // ----------------------------------------------------------------
-        const double C    = 50.0;
-        const double t_cb = std::pow((double)std::max(T_ref, (int64_t)1), 1.0 / 3.0);
-        const double a_cb = std::pow(std::max(alpha_ref, 1.0),            2.0 / 3.0);
+        const double alpha3   = alpha_ref * alpha_ref * alpha_ref;
+        const double ratio    = (double)std::max(T_ref, (int64_t)1) / std::max(alpha3, 1.0);
+        const double C        = std::max(50.0, 500.0 / std::max(ratio, 0.001));
+        const double t_cb     = std::pow((double)std::max(T_ref, (int64_t)1), 1.0 / 3.0);
+        const double a_cb     = std::pow(std::max(alpha_ref, 1.0),            2.0 / 3.0);
         int64_t r_formula = (int64_t)std::ceil(C * (double)m / (t_cb * a_cb));
         int64_t r_min     = std::max((int64_t)1000, (int64_t)(0.20 * (double)m));
         int64_t r         = std::clamp(std::max(r_formula, r_min), (int64_t)1, m);
         double  p         = (double)r / (double)m;
 
         log("--- Phase 1: Edge Sparsification ---");
+        if (C > 50.0)
+            log(QString("  Adaptive C=%1 (T/α³=%2 is low — increasing sampling for accuracy)")
+                    .arg(C, 0, 'f', 1).arg(ratio, 0, 'f', 4));
+        else
+            log(QString("  C=%1 (standard)").arg(C, 0, 'f', 1));
         log(QString("  Formula r=%1  floor r=%2  using r=%3  (p=%4)")
                 .arg(r_formula).arg(r_min).arg(r).arg(p, 0, 'f', 4));
 
@@ -246,7 +254,10 @@ void AlgorithmRunner::runImportanceSamplingEstimation(const QString& filePath, i
 
         std::discrete_distribution<int64_t> edgeDist(weights.begin(), weights.end());
 
+        const int64_t progressInterval = s / 10;  // log every 10%
         for (int64_t i = 0; i < s; ++i) {
+            if (progressInterval > 0 && i > 0 && i % progressInterval == 0)
+                log(QString("  Wedge sampling progress: %1%").arg(i * 100 / s));
             int64_t idx = edgeDist(rng);
             int u = R[idx].first, v = R[idx].second;
 
